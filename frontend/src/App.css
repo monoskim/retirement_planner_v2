@@ -1,0 +1,58 @@
+/* ── APP SHELL ─────────────────────────────────────────────── */
+.app-container { display: flex; height: 100vh; overflow: hidden; }
+
+/* ── SIDEBAR ────────────────────────────────────────────────── */
+.sidebar {
+  width: var(--sidebar-w); min-width: var(--sidebar-w);
+  background: #1E2E47;
+  border-right: none;
+  display: flex; flex-direction: column; overflow-y: auto;
+}
+
+.sidebar-header {
+  padding: 20px 16px 16px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+.sidebar-wordmark {
+  font-size: 10px; font-weight: 600; letter-spacing: .06em;
+  text-transform: uppercase; color: rgba(255,255,255,0.4); margin-bottom: 4px;
+}
+.sidebar-wordmark span { color: #60A5FA; }
+.sidebar-model {
+  font-size: 16px; font-weight: 700; letter-spacing: -.02em;
+  color: #FFFFFF;
+}
+
+.nav-list { list-style: none; padding: 10px 8px; flex: 1; }
+
+.nav-link {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 10px; color: rgba(255,255,255,0.60); font-size: 14px;
+  font-weight: 500; border-radius: 7px;
+  transition: all .15s; text-decoration: none;
+}
+.nav-link:hover { color: rgba(255,255,255,0.90); background: rgba(255,255,255,0.07); }
+.nav-link.active {
+  color: #FFFFFF; background: rgba(96,165,250,0.18);
+  font-weight: 600;
+}
+
+.nav-glyph {
+  font-size: 14px; width: 20px; text-align: center;
+  color: inherit; flex-shrink: 0; opacity: 0.85;
+}
+.nav-label { flex: 1; }
+
+.nav-divider { height: 1px; background: rgba(255,255,255,0.08); margin: 4px 10px; }
+
+/* ── MAIN CONTENT ───────────────────────────────────────────── */
+.main-content { flex: 1; overflow-y: auto; padding: 28px 32px; }
+.main-content.no-pad { padding: 0; overflow: hidden; }
+
+/* ── PAGE CHROME ────────────────────────────────────────────── */
+.page-header {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 24px;
+}
+.page-title   { font-size: 22px; font-weight: 700; letter-spacing: -.02em; color: var(--text); }
+.page-subtitle { font-size: 13px; color: var(--text-muted); margin-top: 3px; }

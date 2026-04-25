@@ -1,0 +1,92 @@
+{
+  "year": 2025,
+  "annual_cola_estimate": 0.025,
+  "_comment": "Brackets are [upper_limit, rate]. Income above the last upper_limit is taxed at the last rate.",
+  "brackets": {
+    "single": [
+      [11925, 0.10],
+      [48475, 0.12],
+      [103350, 0.22],
+      [197300, 0.24],
+      [250525, 0.32],
+      [626350, 0.35],
+      [9999999, 0.37]
+    ],
+    "married_jointly": [
+      [23850, 0.10],
+      [96950, 0.12],
+      [206700, 0.22],
+      [394600, 0.24],
+      [501050, 0.32],
+      [751600, 0.35],
+      [9999999, 0.37]
+    ],
+    "married_separately": [
+      [11925, 0.10],
+      [48475, 0.12],
+      [103350, 0.22],
+      [197300, 0.24],
+      [250525, 0.32],
+      [375800, 0.35],
+      [9999999, 0.37]
+    ],
+    "head_of_household": [
+      [17000, 0.10],
+      [64850, 0.12],
+      [103350, 0.22],
+      [197300, 0.24],
+      [250500, 0.32],
+      [626350, 0.35],
+      [9999999, 0.37]
+    ]
+  },
+  "standard_deductions": {
+    "single": 15000,
+    "married_jointly": 30000,
+    "married_separately": 15000,
+    "head_of_household": 22500
+  },
+  "_comment_cg": "Capital gains thresholds: [upper_limit, rate]. Income above last upper is taxed at that rate.",
+  "capital_gains_thresholds": {
+    "single": [
+      [48350, 0.0],
+      [533400, 0.15],
+      [9999999, 0.20]
+    ],
+    "married_jointly": [
+      [96700, 0.0],
+      [600050, 0.15],
+      [9999999, 0.20]
+    ],
+    "married_separately": [
+      [48350, 0.0],
+      [300000, 0.15],
+      [9999999, 0.20]
+    ],
+    "head_of_household": [
+      [64750, 0.0],
+      [566700, 0.15],
+      [9999999, 0.20]
+    ]
+  },
+  "niit_rate": 0.038,
+  "niit_threshold": {
+    "single": 200000,
+    "married_jointly": 250000,
+    "married_separately": 125000,
+    "head_of_household": 200000
+  },
+  "_comment_ss": "Provisional income thresholds for Social Security benefit taxation (not inflation-adjusted by law).",
+  "ss_provisional_income": {
+    "single_lower": 25000,
+    "single_upper": 34000,
+    "joint_lower": 32000,
+    "joint_upper": 44000
+  },
+  "additional_standard_deduction_65_plus": {
+    "single": 2000,
+    "married_jointly": 1600,
+    "married_separately": 1600,
+    "head_of_household": 2000
+  }
+}
