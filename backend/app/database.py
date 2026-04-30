@@ -1,39 +1,36 @@
-"""
-DuckDB connection management and schema initialization.
-Uses a single global connection — appropriate for a local single-user app.
-"""
+"""DuckDB connection management and schema initialization."""
 from __future__ import annotations
 
 from pathlib import Path
 
 import duckdb
 
-_conn: duckdb.DuckDBPyConnection | None = None
-
 DB_PATH = Path(__file__).parent.parent / "data" / "retirement_planner.duckdb"
 
 
 def init_db(db_path: Path | None = None) -> None:
-    """Initialize the DuckDB connection and create tables if needed."""
-    global _conn
+    """Initialize the database file and create tables if needed."""
     path = db_path or DB_PATH
     path.parent.mkdir(parents=True, exist_ok=True)
-    _conn = duckdb.connect(str(path))
-    _create_schema(_conn)
+    conn = duckdb.connect(str(path))
+    try:
+        _create_schema(conn)
+    finally:
+        conn.close()
 
 
 def close_db() -> None:
-    global _conn
-    if _conn is not None:
-        _conn.close()
-        _conn = None
+    """No-op retained for FastAPI lifespan symmetry."""
+    return None
 
 
-def get_db() -> duckdb.DuckDBPyConnection:
-    """FastAPI dependency — returns the active connection."""
-    if _conn is None:
-        raise RuntimeError("Database not initialized. Call init_db() first.")
-    return _conn
+def get_db():
+    """FastAPI dependency - yields a fresh connection for each request."""
+    conn = duckdb.connect(str(DB_PATH))
+    try:
+        yield conn
+    finally:
+        conn.close()
 
 
 def _create_schema(conn: duckdb.DuckDBPyConnection) -> None:
@@ -65,6 +62,7 @@ def _create_schema(conn: duckdb.DuckDBPyConnection) -> None:
                 )),
             balance               DOUBLE  NOT NULL DEFAULT 0.0,
             annual_contribution   DOUBLE  NOT NULL DEFAULT 0.0,
+            contribution_pct      DOUBLE  NOT NULL DEFAULT 0.0,
             employer_match_pct    DOUBLE  NOT NULL DEFAULT 0.0,
             employer_match_limit_pct DOUBLE NOT NULL DEFAULT 0.0,
             expected_return_pct   DOUBLE  NOT NULL DEFAULT 7.0,
@@ -186,6 +184,7 @@ def _create_schema(conn: duckdb.DuckDBPyConnection) -> None:
             expected_sale_price  DOUBLE,
             closing_cost_pct     DOUBLE  NOT NULL DEFAULT 7.0,
             active_participation BOOLEAN NOT NULL DEFAULT TRUE,
+            is_primary_residence BOOLEAN NOT NULL DEFAULT FALSE,
             notes                VARCHAR,
             created_at           TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
@@ -241,7 +240,27 @@ def _create_schema(conn: duckdb.DuckDBPyConnection) -> None:
         )
     """)
 
+    # Migrations — add columns that may not exist in older databases
+    _migrate(conn)
+
     conn.commit()
+
+
+def _migrate(conn: duckdb.DuckDBPyConnection) -> None:
+    """Apply incremental schema migrations for columns added after initial release."""
+    existing = {row[0] for row in conn.execute(
+        "SELECT column_name FROM information_schema.columns WHERE table_name = 'accounts'"
+    ).fetchall()}
+    if "contribution_pct" not in existing:
+        conn.execute("ALTER TABLE accounts ADD COLUMN contribution_pct DOUBLE DEFAULT 0.0")
+        conn.execute("UPDATE accounts SET contribution_pct = 0.0 WHERE contribution_pct IS NULL")
+
+    prop_cols = {row[0] for row in conn.execute(
+        "SELECT column_name FROM information_schema.columns WHERE table_name = 'rental_properties'"
+    ).fetchall()}
+    if "is_primary_residence" not in prop_cols:
+        conn.execute("ALTER TABLE rental_properties ADD COLUMN is_primary_residence BOOLEAN DEFAULT FALSE")
+        conn.execute("UPDATE rental_properties SET is_primary_residence = FALSE WHERE is_primary_residence IS NULL")
 
 
 def rows_to_dicts(conn: duckdb.DuckDBPyConnection) -> list[dict]:

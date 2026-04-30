@@ -16,6 +16,7 @@ class AccountCreate(BaseModel):
     account_type: AccountType
     balance: float = Field(default=0.0, ge=0.0)
     annual_contribution: float = Field(default=0.0, ge=0.0)
+    contribution_pct: float = Field(default=0.0, ge=0.0, le=100.0)
     employer_match_pct: float = Field(default=0.0, ge=0.0, le=100.0)
     employer_match_limit_pct: float = Field(default=0.0, ge=0.0, le=100.0)
     expected_return_pct: float = Field(default=7.0, ge=-50.0, le=100.0)

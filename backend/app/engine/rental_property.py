@@ -188,16 +188,17 @@ def calculate_rental_year(
     prop_type = property_data.get("property_type", "residential_single")
     building_val = property_data.get("building_value", 0.0)
     active_part = property_data.get("active_participation", True)
+    is_primary = property_data.get("is_primary_residence", False)
 
-    # ---- Depreciation ----
-    depr = annual_depreciation(building_val, prop_type)
+    # ---- Depreciation (not applicable to primary residences) ----
+    depr = 0.0 if is_primary else annual_depreciation(building_val, prop_type)
     # Only depreciate from the first year of ownership
     accumulated_depr = depr * min(years_owned, _depreciation_life(prop_type))
 
-    # ---- Rental Income ----
+    # ---- Rental Income (primary residences have no rental income) ----
     gross_rent = 0.0
     net_rent = 0.0
-    if income_data:
+    if income_data and not is_primary:
         base_monthly = income_data.get("monthly_rent", 0.0)
         rent_increase = income_data.get("annual_rent_increase_pct", 0.0) / 100
         vacancy_rate = income_data.get("vacancy_rate_pct", 5.0) / 100
@@ -256,14 +257,19 @@ def calculate_rental_year(
     )
     net_income_before_pal = net_rent - total_deductible
 
-    # Passive activity loss rule
-    pal_deduction = passive_loss_allowed(net_income_before_pal, agi_estimate, active_part)
-    if net_income_before_pal < 0:
-        # Loss: only allowed portion reduces taxes; rest is suspended
-        net_taxable = -pal_deduction  # negative = reduces ordinary income
+    # Primary residences have no taxable rental income/loss
+    if is_primary:
+        pal_deduction = 0.0
+        net_taxable = 0.0
     else:
-        # Income: fully taxable
-        net_taxable = net_income_before_pal
+        # Passive activity loss rule
+        pal_deduction = passive_loss_allowed(net_income_before_pal, agi_estimate, active_part)
+        if net_income_before_pal < 0:
+            # Loss: only allowed portion reduces taxes; rest is suspended
+            net_taxable = -pal_deduction  # negative = reduces ordinary income
+        else:
+            # Income: fully taxable
+            net_taxable = net_income_before_pal
 
     # ---- Market Value & Equity ----
     app_rate = property_data.get("appreciation_rate_pct", 3.0) / 100

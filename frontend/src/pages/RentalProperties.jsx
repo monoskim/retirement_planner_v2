@@ -11,7 +11,7 @@ const PROP_BLANK = {
   name: '', purchase_date: '', purchase_price: 0, land_value: 0, building_value: 0,
   current_market_value: 0, appreciation_rate_pct: 3.0, property_type: 'residential_single',
   status: 'active', planned_sale_year: '', expected_sale_price: '', closing_cost_pct: 7.0,
-  active_participation: true, notes: '',
+  active_participation: true, is_primary_residence: false, notes: '',
 }
 
 const EXP_CATS = ['property_tax','insurance','maintenance','hoa','management_fee','utilities','other']
@@ -131,7 +131,7 @@ export default function RentalProperties() {
                 border: `1px solid ${selected === p.id ? 'var(--accent)' : 'var(--border)'}`,
               }}
             >
-              <div style={{ fontWeight: 500, fontSize: 13 }}>{p.name}</div>
+              <div style={{ fontWeight: 500, fontSize: 13 }}>{p.name}{p.is_primary_residence && <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--accent)', fontWeight: 600 }}>HOME</span>}</div>
               <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{formatCurrency(p.current_market_value)}</div>
             </div>
           ))}
@@ -152,23 +152,26 @@ export default function RentalProperties() {
               </div>
 
               <div className="tab-group">
-                {['overview','mortgage','rental income','expenses'].map(t => (
+                {['overview','mortgage',...(prop?.is_primary_residence ? [] : ['rental income','expenses'])].map(t => (
                   <button key={t} className={`tab${tab === t ? ' active' : ''}`} onClick={() => setTab(t)}>{t}</button>
                 ))}
               </div>
 
               {tab === 'overview' && prop && (
                 <div className="card">
+                  {prop.is_primary_residence && (
+                    <div style={{ marginBottom: 12, display: 'inline-block', padding: '3px 10px', borderRadius: 4, background: 'rgba(79,142,247,0.15)', color: 'var(--accent)', fontSize: 12, fontWeight: 600 }}>Primary Residence</div>
+                  )}
                   <div className="form-grid three-col">
                     <div><div className="stat-label">Purchase Price</div><div style={{ fontWeight: 600 }}>{formatCurrency(prop.purchase_price)}</div></div>
                     <div><div className="stat-label">Land Value</div><div style={{ fontWeight: 600 }}>{formatCurrency(prop.land_value)}</div></div>
                     <div><div className="stat-label">Building Value</div><div style={{ fontWeight: 600 }}>{formatCurrency(prop.building_value)}</div></div>
                     <div><div className="stat-label">Current Market Value</div><div style={{ fontWeight: 600, color: 'var(--accent)' }}>{formatCurrency(prop.current_market_value)}</div></div>
                     <div><div className="stat-label">Annual Appreciation</div><div style={{ fontWeight: 600 }}>{prop.appreciation_rate_pct}%</div></div>
-                    <div><div className="stat-label">Monthly Gross Rent</div><div style={{ fontWeight: 600, color: 'var(--green)' }}>{formatCurrency(income?.monthly_rent ?? 0)}</div></div>
+                    {!prop.is_primary_residence && <div><div className="stat-label">Monthly Gross Rent</div><div style={{ fontWeight: 600, color: 'var(--green)' }}>{formatCurrency(income?.monthly_rent ?? 0)}</div></div>}
                     <div><div className="stat-label">Mortgage Balance</div><div style={{ fontWeight: 600, color: 'var(--red)' }}>{formatCurrency(mortgage?.current_balance ?? 0)}</div></div>
                     <div><div className="stat-label">Equity</div><div style={{ fontWeight: 600, color: 'var(--green)' }}>{formatCurrency((prop.current_market_value || 0) - (mortgage?.current_balance || 0))}</div></div>
-                    <div><div className="stat-label">Annual Op. Expenses</div><div style={{ fontWeight: 600 }}>{formatCurrency(totalOpEx)}</div></div>
+                    {!prop.is_primary_residence && <div><div className="stat-label">Annual Op. Expenses</div><div style={{ fontWeight: 600 }}>{formatCurrency(totalOpEx)}</div></div>}
                   </div>
                   {prop.planned_sale_year && (
                     <div style={{ marginTop: 16, padding: '10px 14px', background: 'var(--surface2)', borderRadius: 6, fontSize: 13 }}>
@@ -284,6 +287,10 @@ export default function RentalProperties() {
               <FormField label="Planned Sale Year"><input type="number" value={form.planned_sale_year} onChange={e => set('planned_sale_year', e.target.value)} /></FormField>
               <FormField label="Expected Sale Price ($)"><input type="number" min="0" value={form.expected_sale_price} onChange={e => set('expected_sale_price', e.target.value)} /></FormField>
               <FormField label="Closing Costs (%)"><input type="number" step="0.1" min="0" max="30" value={form.closing_cost_pct} onChange={e => set('closing_cost_pct', +e.target.value)} /></FormField>
+            </div>
+            <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <input type="checkbox" id="primary-res" style={{ width: 'auto' }} checked={!!form.is_primary_residence} onChange={e => set('is_primary_residence', e.target.checked)} />
+              <label htmlFor="primary-res" style={{ marginBottom: 0, fontSize: 13 }}>This is my primary residence (no rental income or depreciation)</label>
             </div>
             {error && <p className="error-msg">{error}</p>}
           </form>

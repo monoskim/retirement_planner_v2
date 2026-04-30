@@ -38,13 +38,13 @@ def create_account(body: AccountCreate, conn: duckdb.DuckDBPyConnection = Depend
     new_id = str(uuid.uuid4())
     conn.execute(
         """INSERT INTO accounts
-           (id, name, account_type, balance, annual_contribution,
+           (id, name, account_type, balance, annual_contribution, contribution_pct,
             employer_match_pct, employer_match_limit_pct, expected_return_pct,
             return_stddev_pct, cost_basis, notes)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
         [
             new_id, body.name, body.account_type, body.balance,
-            body.annual_contribution, body.employer_match_pct,
+            body.annual_contribution, body.contribution_pct, body.employer_match_pct,
             body.employer_match_limit_pct, body.expected_return_pct,
             body.return_stddev_pct, body.cost_basis, body.notes,
         ],
@@ -64,13 +64,13 @@ def update_account(
         raise HTTPException(status_code=404, detail="Account not found")
     conn.execute(
         """UPDATE accounts SET
-           name=?, account_type=?, balance=?, annual_contribution=?,
+           name=?, account_type=?, balance=?, annual_contribution=?, contribution_pct=?,
            employer_match_pct=?, employer_match_limit_pct=?,
            expected_return_pct=?, return_stddev_pct=?, cost_basis=?, notes=?
            WHERE id=?""",
         [
             body.name, body.account_type, body.balance, body.annual_contribution,
-            body.employer_match_pct, body.employer_match_limit_pct,
+            body.contribution_pct, body.employer_match_pct, body.employer_match_limit_pct,
             body.expected_return_pct, body.return_stddev_pct,
             body.cost_basis, body.notes, account_id,
         ],

@@ -198,17 +198,39 @@ def run_projection(
 
         # ---- 1. CONTRIBUTIONS (pre-retirement) ----
         if is_working:
+            # Compute salary for this year (salary-type income sources active at this age)
+            salary = sum(
+                src.get("annual_amount", 0.0) * ((1 + inflation_rate) ** years_elapsed if src.get("inflation_adjusted") else 1.0)
+                for src in income_sources
+                if src.get("income_type") == "salary"
+                and (src.get("start_age") or 0) <= age <= (src.get("end_age") or 999)
+            )
+
             for acc in accounts:
                 atype = acc["account_type"]
                 if atype in ("401k", "403b", "roth_401k", "trad_ira", "roth_ira", "hsa", "cash"):
-                    contrib = acc.get("annual_contribution", 0.0)
+                    contribution_pct = acc.get("contribution_pct", 0.0)
+                    if contribution_pct > 0 and salary > 0:
+                        contrib = contribution_pct / 100.0 * salary
+                    else:
+                        contrib = acc.get("annual_contribution", 0.0)
+
                     match_pct = acc.get("employer_match_pct", 0.0) / 100.0
-                    match_limit = acc.get("employer_match_limit_pct", 0.0) / 100.0
-                    # Employer match up to the salary % limit
-                    # Simplified: match = match_pct * min(contrib, salary * match_limit)
-                    # Since we don't track salary separately here, use contrib as proxy
-                    match_base = contrib * match_limit if match_limit > 0 else contrib
-                    match = match_base * match_pct
+                    match_limit_pct = acc.get("employer_match_limit_pct", 0.0) / 100.0
+                    # Employer match: employer contributes match_pct% of salary,
+                    # only if employee contributes >= match_limit_pct of salary.
+                    # If no limit is set, match is always paid.
+                    if match_pct > 0:
+                        if match_limit_pct > 0 and salary > 0:
+                            employee_pct = contrib / salary if salary > 0 else 0.0
+                            match = (salary * match_pct) if employee_pct >= match_limit_pct else (contrib * match_pct / match_limit_pct)
+                        elif salary > 0:
+                            match = salary * match_pct
+                        else:
+                            match = contrib * match_pct
+                    else:
+                        match = 0.0
+
                     balances[acc["id"]] = balances.get(acc["id"], 0.0) + contrib + match
 
         # ---- 2. INVESTMENT RETURNS ----
@@ -243,6 +265,7 @@ def run_projection(
         # ---- 5. RENTAL PROPERTIES ----
         rental_results: dict[str, dict] = {}
         total_rental_taxable = 0.0
+        primary_residence_outflow = 0.0
 
         # First pass: estimate AGI for PAL rule (pre-rental)
         pre_rental_income = sum(income_breakdown.values())
@@ -274,8 +297,11 @@ def run_projection(
             depr_so_far = prop_depr.get(pid, 0.0) + result.depreciation
             prop_depr[pid] = depr_so_far
 
+            is_primary = prop.get("is_primary_residence", False)
+
             rental_results[pid] = {
                 "property_name": result.property_name,
+                "is_primary_residence": is_primary,
                 "gross_rent": result.gross_rent,
                 "net_rent": result.net_rent,
                 "mortgage_interest": result.mortgage_interest,
@@ -290,6 +316,10 @@ def run_projection(
                 "cash_flow": result.cash_flow,
             }
             total_rental_taxable += result.net_taxable_income
+
+            # Primary residence mortgage + operating expenses are personal cash outflows
+            if is_primary and result.cash_flow < 0:
+                primary_residence_outflow += abs(result.cash_flow)
 
         # ---- 6. EXPENSES ----
         expense_breakdown: dict[str, float] = {}
@@ -360,7 +390,7 @@ def run_projection(
         total_net_worth = liquid_portfolio + real_estate_equity
 
         total_income = sum(income_breakdown.values()) + total_rental_taxable + total_rmd
-        cash_surplus_deficit = total_income + withdrawal_result.total_withdrawn - total_expenses - tax_final.total_tax
+        cash_surplus_deficit = total_income + withdrawal_result.total_withdrawn - total_expenses - tax_final.total_tax - primary_residence_outflow
 
         snapshot = {
             "year": year,

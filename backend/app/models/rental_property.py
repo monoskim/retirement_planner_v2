@@ -33,6 +33,7 @@ class RentalPropertyCreate(BaseModel):
     closing_cost_pct: float = Field(default=7.0, ge=0.0, le=30.0,
         description="Estimated closing costs as % of sale price")
     active_participation: bool = True
+    is_primary_residence: bool = False
     notes: str | None = None
 
 

@@ -49,14 +49,14 @@ def create_property(body: RentalPropertyCreate, conn: duckdb.DuckDBPyConnection 
            (id, name, purchase_date, purchase_price, land_value, building_value,
             current_market_value, appreciation_rate_pct, property_type, status,
             planned_sale_year, expected_sale_price, closing_cost_pct,
-            active_participation, notes)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            active_participation, is_primary_residence, notes)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         [
             new_id, body.name, str(body.purchase_date), body.purchase_price,
             body.land_value, body.building_value, body.current_market_value,
             body.appreciation_rate_pct, body.property_type, body.status,
             body.planned_sale_year, body.expected_sale_price, body.closing_cost_pct,
-            body.active_participation, body.notes,
+            body.active_participation, body.is_primary_residence, body.notes,
         ],
     )
     conn.execute("SELECT * FROM rental_properties WHERE id = ?", [new_id])
@@ -77,13 +77,14 @@ def update_property(
            name=?, purchase_date=?, purchase_price=?, land_value=?,
            building_value=?, current_market_value=?, appreciation_rate_pct=?,
            property_type=?, status=?, planned_sale_year=?, expected_sale_price=?,
-           closing_cost_pct=?, active_participation=?, notes=?
+           closing_cost_pct=?, active_participation=?, is_primary_residence=?, notes=?
            WHERE id=?""",
         [
             body.name, str(body.purchase_date), body.purchase_price, body.land_value,
             body.building_value, body.current_market_value, body.appreciation_rate_pct,
             body.property_type, body.status, body.planned_sale_year, body.expected_sale_price,
-            body.closing_cost_pct, body.active_participation, body.notes, property_id,
+            body.closing_cost_pct, body.active_participation, body.is_primary_residence,
+            body.notes, property_id,
         ],
     )
     conn.execute("SELECT * FROM rental_properties WHERE id = ?", [property_id])
