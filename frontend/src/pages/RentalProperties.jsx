@@ -28,7 +28,7 @@ export default function RentalProperties() {
   const [subForm, setSubForm] = useState({})
   const [error, setError] = useState('')
 
-  const loadProps = () => getRentalProperties().then(setProperties)
+  const loadProps = () => getRentalProperties().then(props => setProperties(props.map(p => ({ ...p, is_primary_residence: !!p.is_primary_residence }))))
   useEffect(() => { loadProps() }, [])
 
   const loadDetails = async id => {
@@ -47,12 +47,23 @@ export default function RentalProperties() {
   const setSub = (k, v) => setSubForm(f => ({ ...f, [k]: v }))
 
   const openAddProp = () => { setForm(PROP_BLANK); setError(''); setModal('add-prop') }
-  const openEditProp = p => { setForm({ ...p, planned_sale_year: p.planned_sale_year ?? '', expected_sale_price: p.expected_sale_price ?? '' }); setError(''); setModal('edit-prop') }
+  const openEditProp = p => {
+    console.log('DEBUG openEditProp is_primary_residence:', p.is_primary_residence, typeof p.is_primary_residence);
+    setForm({
+      ...p,
+      is_primary_residence: !!p.is_primary_residence,
+      planned_sale_year: p.planned_sale_year ?? '',
+      expected_sale_price: p.expected_sale_price ?? ''
+    });
+    setError('');
+    setModal('edit-prop');
+  }
 
   const submitProp = async e => {
     e.preventDefault(); setError('')
     const payload = {
       ...form,
+      is_primary_residence: !!form.is_primary_residence,
       planned_sale_year: form.planned_sale_year === '' ? null : +form.planned_sale_year,
       expected_sale_price: form.expected_sale_price === '' ? null : +form.expected_sale_price,
     }
@@ -131,7 +142,14 @@ export default function RentalProperties() {
                 border: `1px solid ${selected === p.id ? 'var(--accent)' : 'var(--border)'}`,
               }}
             >
-              <div style={{ fontWeight: 500, fontSize: 13 }}>{p.name}{p.is_primary_residence && <span style={{ marginLeft: 6, fontSize: 10, color: 'var(--accent)', fontWeight: 600 }}>HOME</span>}</div>
+              <div style={{ display: 'flex', alignItems: 'center', fontWeight: 500, fontSize: 13 }}>
+                {p.name}
+                {p.is_primary_residence ? (
+                  <span style={{ marginLeft: 8, fontSize: 10, color: 'var(--accent)', fontWeight: 700, background: 'rgba(79,142,247,0.12)', borderRadius: 4, padding: '2px 6px' }}>PRIMARY</span>
+                ) : (
+                  <span style={{ marginLeft: 8, fontSize: 10, color: 'var(--purple)', fontWeight: 700, background: 'rgba(128,0,128,0.10)', borderRadius: 4, padding: '2px 6px' }}>RENTAL</span>
+                )}
+              </div>
               <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{formatCurrency(p.current_market_value)}</div>
             </div>
           ))}
@@ -304,10 +322,10 @@ export default function RentalProperties() {
             <div className="form-grid">
               <FormField label="Lender" fullWidth><input value={subForm.lender || ''} onChange={e => setSub('lender', e.target.value)} /></FormField>
               <FormField label="Original Loan Amount ($)"><input type="number" min="0" value={subForm.original_amount} onChange={e => setSub('original_amount', +e.target.value)} /></FormField>
-              <FormField label="Interest Rate (%)"><input type="number" step="0.01" min="0" value={subForm.interest_rate} onChange={e => setSub('interest_rate', +e.target.value)} /></FormField>
+              <FormField label="Interest Rate (%)"><input type="number" step="0.001" min="0" value={subForm.interest_rate} onChange={e => setSub('interest_rate', +e.target.value)} /></FormField>
               <FormField label="Term (years)"><input type="number" min="1" max="50" value={subForm.term_years} onChange={e => setSub('term_years', +e.target.value)} /></FormField>
               <FormField label="Loan Start Date"><input type="date" value={subForm.start_date?.split('T')[0] || subForm.start_date || ''} onChange={e => setSub('start_date', e.target.value)} required /></FormField>
-              <FormField label="Current Balance ($)"><input type="number" min="0" value={subForm.current_balance} onChange={e => setSub('current_balance', +e.target.value)} /></FormField>
+              <FormField label="Current Balance ($)"><input type="number" step="0.01" min="0" value={subForm.current_balance} onChange={e => setSub('current_balance', +e.target.value)} /></FormField>
               <FormField label="Balance Date (if not now)"><input type="date" value={subForm.current_balance_date?.split('T')[0] || ''} onChange={e => setSub('current_balance_date', e.target.value)} /></FormField>
               <FormField label="Extra Monthly Payment ($)"><input type="number" min="0" value={subForm.extra_monthly_payment} onChange={e => setSub('extra_monthly_payment', +e.target.value)} /></FormField>
             </div>

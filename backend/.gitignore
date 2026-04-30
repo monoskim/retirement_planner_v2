@@ -11,3 +11,7 @@ wheels/
 
 # Log files
 *.log
+ 
+# DuckDB database files
+data/retirement_planner.duckdb
+*.duckdb
