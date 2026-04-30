@@ -35,19 +35,23 @@ def get_db():
 
 def _create_schema(conn: duckdb.DuckDBPyConnection) -> None:
     conn.execute("""
-        CREATE TABLE IF NOT EXISTS profiles (
-            id         INTEGER PRIMARY KEY DEFAULT 1,
-            name       VARCHAR NOT NULL DEFAULT 'Me',
-            birth_date DATE    NOT NULL,
-            filing_status VARCHAR NOT NULL
-                CHECK (filing_status IN (
-                    'single','married_jointly','married_separately','head_of_household'
-                )),
-            state          VARCHAR NOT NULL DEFAULT 'NV',
-            retirement_age INTEGER NOT NULL DEFAULT 65,
-            life_expectancy INTEGER NOT NULL DEFAULT 95,
-            inflation_rate DOUBLE  NOT NULL DEFAULT 3.0,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        CREATE TABLE IF NOT EXISTS mortgages (
+            id                    VARCHAR PRIMARY KEY,
+            property_id           VARCHAR NOT NULL
+                REFERENCES rental_properties(id),
+            lender                VARCHAR,
+            original_amount       DOUBLE  NOT NULL DEFAULT 0.0,
+            interest_rate         DOUBLE  NOT NULL DEFAULT 0.0,
+            term_years            INTEGER NOT NULL DEFAULT 30,
+            start_date            DATE    NOT NULL,
+            current_balance       DOUBLE  NOT NULL DEFAULT 0.0,
+            current_balance_date  DATE,
+            extra_monthly_payment DOUBLE  NOT NULL DEFAULT 0.0,
+            property_tax          DOUBLE  NOT NULL DEFAULT 0.0,
+            insurance             DOUBLE  NOT NULL DEFAULT 0.0,
+            actual_monthly_payment DOUBLE,
+            notes                 VARCHAR,
+            created_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
 
@@ -245,6 +249,18 @@ def _create_schema(conn: duckdb.DuckDBPyConnection) -> None:
 
     conn.commit()
 
+
+def _migrate(conn: duckdb.DuckDBPyConnection) -> None:
+        # Mortgage table migrations
+        mortgage_cols = {row[0] for row in conn.execute(
+            "SELECT column_name FROM information_schema.columns WHERE table_name = 'mortgages'"
+        ).fetchall()}
+        if "property_tax" not in mortgage_cols:
+            conn.execute("ALTER TABLE mortgages ADD COLUMN property_tax DOUBLE DEFAULT 0.0")
+        if "insurance" not in mortgage_cols:
+            conn.execute("ALTER TABLE mortgages ADD COLUMN insurance DOUBLE DEFAULT 0.0")
+        if "actual_monthly_payment" not in mortgage_cols:
+            conn.execute("ALTER TABLE mortgages ADD COLUMN actual_monthly_payment DOUBLE")
 
 def _migrate(conn: duckdb.DuckDBPyConnection) -> None:
     """Apply incremental schema migrations for columns added after initial release."""

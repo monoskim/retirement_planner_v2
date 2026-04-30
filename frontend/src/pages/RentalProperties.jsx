@@ -83,7 +83,12 @@ export default function RentalProperties() {
   const openAddMort = () => { setSubForm({ lender: '', original_amount: 0, interest_rate: 0, term_years: 30, start_date: '', current_balance: 0, current_balance_date: '', extra_monthly_payment: 0, notes: '' }); setError(''); setModal('add-mort') }
   const submitMort = async e => {
     e.preventDefault(); setError('')
-    const payload = { ...subForm, current_balance_date: subForm.current_balance_date || null }
+    const payload = {
+      ...subForm,
+      current_balance_date: subForm.current_balance_date || null,
+      property_tax: subForm.property_tax || 0,
+      insurance: subForm.insurance || 0,
+    }
     try {
       if (modal === 'add-mort') await createMortgage(selected, payload)
       else await updateMortgage(selected, modal.editId, payload)
@@ -214,6 +219,8 @@ export default function RentalProperties() {
                         <div><div className="stat-label">Term</div><div>{mortgage.term_years} years</div></div>
                         <div><div className="stat-label">Current Balance</div><div style={{ color: 'var(--red)' }}>{formatCurrency(mortgage.current_balance)}</div></div>
                         <div><div className="stat-label">Extra Monthly</div><div>{formatCurrency(mortgage.extra_monthly_payment)}</div></div>
+                        <div><div className="stat-label">Property Tax (annual)</div><div>{formatCurrency(mortgage.property_tax || 0)}</div></div>
+                        <div><div className="stat-label">Homeowner's Insurance (annual)</div><div>{formatCurrency(mortgage.insurance || 0)}</div></div>
                       </div>
                     </>
                   ) : (
@@ -328,6 +335,8 @@ export default function RentalProperties() {
               <FormField label="Current Balance ($)"><input type="number" step="0.01" min="0" value={subForm.current_balance} onChange={e => setSub('current_balance', +e.target.value)} /></FormField>
               <FormField label="Balance Date (if not now)"><input type="date" value={subForm.current_balance_date?.split('T')[0] || ''} onChange={e => setSub('current_balance_date', e.target.value)} /></FormField>
               <FormField label="Extra Monthly Payment ($)"><input type="number" min="0" value={subForm.extra_monthly_payment} onChange={e => setSub('extra_monthly_payment', +e.target.value)} /></FormField>
+              <FormField label="Property Tax (annual $)"><input type="number" min="0" value={subForm.property_tax || ''} onChange={e => setSub('property_tax', +e.target.value)} /></FormField>
+              <FormField label="Homeowner's Insurance (annual $)"><input type="number" min="0" value={subForm.insurance || ''} onChange={e => setSub('insurance', +e.target.value)} /></FormField>
             </div>
             {error && <p className="error-msg">{error}</p>}
           </form>

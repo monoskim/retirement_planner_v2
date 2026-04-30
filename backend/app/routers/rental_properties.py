@@ -123,13 +123,15 @@ def create_mortgage(
     conn.execute(
         """INSERT INTO mortgages
            (id, property_id, lender, original_amount, interest_rate, term_years,
-            start_date, current_balance, current_balance_date, extra_monthly_payment, notes)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+            start_date, current_balance, current_balance_date, extra_monthly_payment,
+            property_tax, insurance, actual_monthly_payment, notes)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         [
             new_id, property_id, body.lender, body.original_amount, body.interest_rate,
             body.term_years, str(body.start_date), body.current_balance,
             str(body.current_balance_date) if body.current_balance_date else None,
-            body.extra_monthly_payment, body.notes,
+            body.extra_monthly_payment, body.property_tax, body.insurance,
+            body.actual_monthly_payment, body.notes,
         ],
     )
     conn.execute("SELECT * FROM mortgages WHERE id = ?", [new_id])
@@ -153,13 +155,14 @@ def update_mortgage(
         """UPDATE mortgages SET
            lender=?, original_amount=?, interest_rate=?, term_years=?,
            start_date=?, current_balance=?, current_balance_date=?,
-           extra_monthly_payment=?, notes=?
+           extra_monthly_payment=?, property_tax=?, insurance=?, actual_monthly_payment=?, notes=?
            WHERE id=?""",
         [
             body.lender, body.original_amount, body.interest_rate, body.term_years,
             str(body.start_date), body.current_balance,
             str(body.current_balance_date) if body.current_balance_date else None,
-            body.extra_monthly_payment, body.notes, mortgage_id,
+            body.extra_monthly_payment, body.property_tax, body.insurance,
+            body.actual_monthly_payment, body.notes, mortgage_id,
         ],
     )
     conn.execute("SELECT * FROM mortgages WHERE id = ?", [mortgage_id])

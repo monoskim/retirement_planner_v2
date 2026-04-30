@@ -62,6 +62,9 @@ class MortgageCreate(BaseModel):
         description="Current outstanding balance (used as starting point)")
     current_balance_date: date | None = None
     extra_monthly_payment: float = Field(default=0.0, ge=0.0)
+    property_tax: float = Field(default=0.0, ge=0.0, description="Annual property tax for escrow")
+    insurance: float = Field(default=0.0, ge=0.0, description="Annual homeowner's insurance for escrow")
+    actual_monthly_payment: float | None = Field(default=None, ge=0.0, description="Actual monthly payment (overrides calculation if provided)")
     notes: str | None = None
 
 

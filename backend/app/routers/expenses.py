@@ -20,8 +20,51 @@ def _fmt(row: dict) -> dict:
 
 @router.get("", response_model=list[ExpenseOut])
 def list_expenses(conn: duckdb.DuckDBPyConnection = Depends(get_db)):
+    # Get regular expenses
     conn.execute("SELECT * FROM expenses ORDER BY created_at")
-    return [_fmt(r) for r in rows_to_dicts(conn)]
+    expenses = [_fmt(r) for r in rows_to_dicts(conn)]
+
+    # Check for primary residence and its mortgage
+    conn.execute("SELECT id FROM rental_properties WHERE is_primary_residence = TRUE LIMIT 1")
+    prop_rows = rows_to_dicts(conn)
+    if prop_rows:
+        property_id = prop_rows[0]["id"]
+        conn.execute("SELECT * FROM mortgages WHERE property_id = ? ORDER BY created_at LIMIT 1", [property_id])
+        mortgage_rows = rows_to_dicts(conn)
+        if mortgage_rows:
+            m = mortgage_rows[0]
+            # Use actual_monthly_payment if provided, otherwise calculate and add escrow
+            actual_monthly = m.get("actual_monthly_payment")
+            extra = m.get("extra_monthly_payment", 0.0) or 0.0
+            if actual_monthly is not None and actual_monthly > 0:
+                monthly = actual_monthly + extra
+            else:
+                principal = m.get("original_amount", 0.0)
+                rate = m.get("interest_rate", 0.0) / 100.0
+                n_years = m.get("term_years", 30)
+                n_payments = n_years * 12
+                if rate > 0 and n_payments > 0:
+                    monthly = principal * (rate/12) / (1 - (1 + rate/12) ** -n_payments)
+                else:
+                    monthly = principal / n_payments if n_payments > 0 else 0.0
+                # Add escrow (property tax and insurance) if present
+                monthly += (m.get("property_tax", 0.0) + m.get("insurance", 0.0)) / 12.0
+                monthly += extra
+            annual_payment = round(monthly * 12, 2)
+            # Add as synthetic expense
+            expenses.append({
+                "id": "primary-mortgage",
+                "name": "Primary Residence Mortgage",
+                "category": "housing",
+                "annual_amount": annual_payment,
+                "start_age": None,
+                "end_age": None,
+                "inflation_adjusted": True,
+                "notes": "Auto-generated from primary residence mortgage",
+                "created_at": None,
+            })
+
+    return expenses
 
 
 @router.get("/{expense_id}", response_model=ExpenseOut)
