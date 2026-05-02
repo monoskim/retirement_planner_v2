@@ -185,6 +185,13 @@ def run_projection(
 
     # Account balances tracked as mutable state
     balances: dict[str, float] = {acc["id"]: acc.get("balance", 0.0) for acc in accounts}
+    # Track cost basis for taxable accounts only. Basis is principal and should
+    # increase with contributions, then decrease as principal is withdrawn.
+    taxable_basis: dict[str, float] = {
+        acc["id"]: max(0.0, acc.get("cost_basis", 0.0))
+        for acc in accounts
+        if acc.get("account_type") == "taxable"
+    }
 
     # Track accumulated depreciation per property
     prop_depr: dict[str, float] = {}
@@ -251,6 +258,8 @@ def run_projection(
                         match = 0.0
 
                     balances[acc["id"]] = balances.get(acc["id"], 0.0) + contrib + match
+                    if atype == "taxable":
+                        taxable_basis[acc["id"]] = taxable_basis.get(acc["id"], 0.0) + contrib + match
                     flow = account_year_flows.get(acc["id"])
                     if flow is not None:
                         flow["contribution"] += contrib
@@ -426,9 +435,33 @@ def run_projection(
         # Additional ordinary income from tax-deferred withdrawals
         additional_ordinary = withdrawal_result.tax_deferred_withdrawn
 
+        # Realized long-term gains from taxable account withdrawals.
+        # We model each sale as pro-rata principal vs gain based on current
+        # unrealized gain in the account at the time of withdrawal.
+        additional_long_term_gains = 0.0
+        account_type_by_id = {acc["id"]: acc.get("account_type") for acc in accounts}
+        for acc_id, amt in withdrawal_result.per_account.items():
+            if account_type_by_id.get(acc_id) != "taxable" or amt <= 0:
+                continue
+
+            post_withdrawal_balance = balances.get(acc_id, 0.0)
+            pre_withdrawal_balance = post_withdrawal_balance + amt
+            basis_before = taxable_basis.get(acc_id, 0.0)
+
+            if pre_withdrawal_balance <= 0:
+                continue
+
+            unrealized_gain_before = max(0.0, pre_withdrawal_balance - basis_before)
+            gain_ratio = unrealized_gain_before / pre_withdrawal_balance
+            realized_gain = amt * gain_ratio
+            additional_long_term_gains += realized_gain
+
+            principal_withdrawn = amt - realized_gain
+            taxable_basis[acc_id] = max(0.0, basis_before - principal_withdrawn)
+
         tax_final = calculate_total_tax(
             ordinary_income=ordinary_income_p1 + additional_ordinary,
-            long_term_gains=0.0,
+            long_term_gains=additional_long_term_gains,
             ss_benefits=ss_annual,
             filing_status=filing_status,
             year=year,
@@ -502,6 +535,7 @@ def run_projection(
                 "taxable": round(withdrawal_result.taxable_withdrawn, 2),
                 "tax_deferred": round(withdrawal_result.tax_deferred_withdrawn, 2),
                 "roth": round(withdrawal_result.roth_withdrawn, 2),
+                "taxable_long_term_gains": round(additional_long_term_gains, 2),
                 "penalty": round(withdrawal_result.penalty_paid, 2),
                 "total": round(withdrawal_result.total_withdrawn, 2),
             },
