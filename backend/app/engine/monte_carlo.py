@@ -119,7 +119,8 @@ def run_monte_carlo(
     for year_idx in range(n_years):
         age = current_age + year_idx
         years_elapsed = year_idx
-        is_working = age < retirement_age
+        # Treat retirement age as the last working year for contribution logic.
+        is_working = age <= retirement_age
 
         # Returns this year: shape (N, n_accounts)
         ret = account_returns[:, year_idx, :]  # shape (N, n_accounts)
@@ -129,7 +130,7 @@ def run_monte_carlo(
         if is_working:
             for i, acc in enumerate(accounts):
                 atype = acc["account_type"]
-                if atype in ("401k", "403b", "roth_401k", "trad_ira", "roth_ira", "hsa", "cash"):
+                if atype in ("401k", "403b", "roth_401k", "trad_ira", "roth_ira", "taxable", "hsa", "cash"):
                     contrib = acc.get("annual_contribution", 0.0)
                     match_pct = acc.get("employer_match_pct", 0.0) / 100.0
                     match_lim = acc.get("employer_match_limit_pct", 0.0) / 100.0

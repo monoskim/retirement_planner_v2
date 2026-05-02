@@ -7,6 +7,14 @@ import {
 import { getProfile, getAccounts, getIncomeSources, getExpenses, getSocialSecurity } from '../api'
 
 const CLAIMING_AGE_STORAGE_KEY = 'retirement-planner.social-security.claiming-age'
+const MILLIONS_FORMATTER = new Intl.NumberFormat('en-US', {
+  minimumFractionDigits: 1,
+  maximumFractionDigits: 2,
+})
+
+function formatMillionsFromThousands(valueK) {
+  return `$${MILLIONS_FORMATTER.format((valueK || 0) / 1000)}M`
+}
 
 /* ── Projection engine (client-side) ──────────────────────── */
 function project({ savingsRate, inflation, marketReturn, targetAge }, startAge, portfolioK, annualIncome, annualExpenses) {
@@ -239,7 +247,7 @@ function PrecisionTooltip({ active, payload }) {
         Age {d?.age}{d?.retired ? ' · Retired' : ''}
       </div>
       <div style={{ fontSize:18, color:'#2563EB', fontWeight:700, fontFamily:"'SF Mono',Menlo,monospace", letterSpacing:'-.02em' }}>
-        ${(d?.value || 0).toLocaleString()}k
+        {formatMillionsFromThousands(d?.value || 0)}
       </div>
     </div>
   )
@@ -333,9 +341,9 @@ export default function Dashboard() {
           <div style={{ fontSize:10, fontWeight:600, color:'#9CA3AF', letterSpacing:'.08em', textTransform:'uppercase', marginBottom:12 }}>
             Projection
           </div>
-          <StatusRow label="At Retirement" value={`$${(retData?.value ?? 0).toLocaleString()}k`} accent />
-          <StatusRow label="Peak Value"    value={`$${peakValue.toLocaleString()}k`} />
-          <StatusRow label="Age 95"        value={`$${Math.max(0, finalData?.value ?? 0).toLocaleString()}k`} positive={solvent} negative={!solvent} />
+          <StatusRow label="At Retirement" value={formatMillionsFromThousands(retData?.value ?? 0)} accent />
+          <StatusRow label="Peak Value"    value={formatMillionsFromThousands(peakValue)} />
+          <StatusRow label="Age 95"        value={formatMillionsFromThousands(Math.max(0, finalData?.value ?? 0))} positive={solvent} negative={!solvent} />
           <div style={{ marginTop:12, paddingTop:4 }}>
             <span style={{
               display:'inline-block', padding:'4px 12px', borderRadius:100,
@@ -348,7 +356,7 @@ export default function Dashboard() {
             </span>
           </div>
           <div style={{ marginTop:10, fontSize:12, color:'#9CA3AF', lineHeight:1.5 }}>
-            Base: ${portfolioK.toLocaleString()}k at age {startAge}
+            Base: {formatMillionsFromThousands(portfolioK)} at age {startAge}
           </div>
         </div>
       </div>
@@ -408,7 +416,7 @@ export default function Dashboard() {
                 tick={{ fill:'#9CA3AF', fontSize:11, fontFamily:"'SF Mono',Menlo,monospace" }}
                 tickLine={false} axisLine={false}
                 domain={[0, domainMax]}
-                tickFormatter={v => v >= 1000 ? `$${(v/1000).toFixed(1)}M` : `$${v}k`}
+                tickFormatter={v => formatMillionsFromThousands(v)}
               />
               <Tooltip content={<PrecisionTooltip />}
                 cursor={{ stroke:'#CBD5E1', strokeWidth:1 }}

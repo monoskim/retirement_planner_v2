@@ -194,7 +194,8 @@ def run_projection(
     for age in range(current_age, end_age + 1):
         year = current_year + (age - current_age)
         years_elapsed = age - current_age
-        is_working = age < retirement_age
+        # Treat retirement age as the last working year for contribution logic.
+        is_working = age <= retirement_age
 
         # Track year-by-year account flow details for auditability.
         account_year_flows: dict[str, dict] = {
@@ -212,6 +213,7 @@ def run_projection(
             }
             for acc in accounts
         }
+        total_employee_contributions = 0.0
 
         # ---- 1. CONTRIBUTIONS (pre-retirement) ----
         if is_working:
@@ -225,7 +227,7 @@ def run_projection(
 
             for acc in accounts:
                 atype = acc["account_type"]
-                if atype in ("401k", "403b", "roth_401k", "trad_ira", "roth_ira", "hsa", "cash"):
+                if atype in ("401k", "403b", "roth_401k", "trad_ira", "roth_ira", "taxable", "hsa", "cash"):
                     contribution_pct = acc.get("contribution_pct", 0.0)
                     if contribution_pct > 0 and salary > 0:
                         contrib = contribution_pct / 100.0 * salary
@@ -254,6 +256,7 @@ def run_projection(
                         flow["contribution"] += contrib
                         flow["employer_match"] += match
                         flow["total_contributions"] += contrib + match
+                    total_employee_contributions += contrib
 
         # ---- 2. INVESTMENT RETURNS ----
         for acc in accounts:
@@ -362,6 +365,12 @@ def run_projection(
                 expense_breakdown[cat] = expense_breakdown.get(cat, 0.0) + amount
 
         total_expenses = sum(expense_breakdown.values())
+
+        # Employee contributions are cash outflows from this year's income
+        # into investment accounts, so include them in expense-side cash flow.
+        if total_employee_contributions > 0:
+            expense_breakdown["account_contributions"] = round(total_employee_contributions, 2)
+            total_expenses += total_employee_contributions
 
         # Include primary residence negative cash flow directly in expenses
         # so table totals and surplus math are transparent.
