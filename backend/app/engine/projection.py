@@ -482,6 +482,43 @@ def run_projection(
             if flow is not None:
                 flow["ending_balance"] = balances.get(acc_id, 0.0)
 
+        taxable_account_tracker: dict[str, dict] = {}
+        total_taxable_balance = 0.0
+        total_taxable_basis = 0.0
+        for acc in accounts:
+            if acc.get("account_type") != "taxable":
+                continue
+            acc_id = acc["id"]
+            balance = max(0.0, balances.get(acc_id, 0.0))
+            basis_remaining = max(0.0, taxable_basis.get(acc_id, 0.0))
+            modeled_unrealized_gain = max(0.0, balance - basis_remaining)
+            gain_ratio = (modeled_unrealized_gain / balance) if balance > 0 else 0.0
+
+            modeled_next_withdrawal = min(10_000.0, balance)
+            modeled_next_principal = modeled_next_withdrawal * (1.0 - gain_ratio)
+            modeled_next_gains = modeled_next_withdrawal * gain_ratio
+
+            total_taxable_balance += balance
+            total_taxable_basis += basis_remaining
+            taxable_account_tracker[acc_id] = {
+                "name": acc["name"],
+                "balance": round(balance, 2),
+                "basis_remaining": round(basis_remaining, 2),
+                "modeled_unrealized_gain": round(modeled_unrealized_gain, 2),
+                "modeled_gain_ratio": round(gain_ratio, 6),
+                "modeled_next_withdrawal": round(modeled_next_withdrawal, 2),
+                "modeled_next_principal": round(modeled_next_principal, 2),
+                "modeled_next_gains": round(modeled_next_gains, 2),
+            }
+
+        total_modeled_unrealized_gain = max(0.0, total_taxable_balance - total_taxable_basis)
+        total_modeled_gain_ratio = (
+            total_modeled_unrealized_gain / total_taxable_balance if total_taxable_balance > 0 else 0.0
+        )
+        total_modeled_next_withdrawal = min(10_000.0, total_taxable_balance)
+        total_modeled_next_principal = total_modeled_next_withdrawal * (1.0 - total_modeled_gain_ratio)
+        total_modeled_next_gains = total_modeled_next_withdrawal * total_modeled_gain_ratio
+
         snapshot = {
             "year": year,
             "age": age,
@@ -538,6 +575,16 @@ def run_projection(
                 "taxable_long_term_gains": round(additional_long_term_gains, 2),
                 "penalty": round(withdrawal_result.penalty_paid, 2),
                 "total": round(withdrawal_result.total_withdrawn, 2),
+            },
+            "taxable_basis_tracker": {
+                "total_taxable_balance": round(total_taxable_balance, 2),
+                "total_basis_remaining": round(total_taxable_basis, 2),
+                "total_modeled_unrealized_gain": round(total_modeled_unrealized_gain, 2),
+                "total_modeled_gain_ratio": round(total_modeled_gain_ratio, 6),
+                "total_modeled_next_withdrawal": round(total_modeled_next_withdrawal, 2),
+                "total_modeled_next_principal": round(total_modeled_next_principal, 2),
+                "total_modeled_next_gains": round(total_modeled_next_gains, 2),
+                "accounts": taxable_account_tracker,
             },
             "rental_properties": {
                 pid: {k: round(v, 2) if isinstance(v, float) else v

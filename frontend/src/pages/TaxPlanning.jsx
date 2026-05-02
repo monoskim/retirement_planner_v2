@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { getScenarios, optimizeRothConversion, optimizeSocialSecurity } from '../api'
+import { getScenarios, optimizeRothConversion, optimizeSocialSecurity, optimizeLifetimeBracketFill } from '../api'
 import { formatCurrency } from '../components/shared'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts'
 
@@ -16,6 +16,7 @@ export default function TaxPlanning() {
   const [tab, setTab] = useState('roth')
   const [rothResults, setRothResults] = useState(null)
   const [ssResults, setSsResults] = useState(null)
+  const [bracketFillResults, setBracketFillResults] = useState(null)
   const [running, setRunning] = useState(false)
   const [error, setError] = useState('')
 
@@ -48,6 +49,17 @@ export default function TaxPlanning() {
     setRunning(false)
   }
 
+  const runBracketFill = async () => {
+    setRunning(true); setError('')
+    try {
+      const res = await optimizeLifetimeBracketFill(scenarioId)
+      setBracketFillResults(res)
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Analysis failed')
+    }
+    setRunning(false)
+  }
+
   // Roth chart: total taxes paid by strategy
   const rothTaxChart = rothResults ? Object.entries(rothResults.strategies).map(([key, val]) => ({
     strategy: key.replace('_', ' '),
@@ -67,7 +79,7 @@ export default function TaxPlanning() {
       <div className="page-header">
         <div>
           <h1 className="page-title">Tax Planning</h1>
-          <p className="page-subtitle">Roth conversion optimizer · Social Security optimization</p>
+          <p className="page-subtitle">Roth conversion optimizer · Social Security optimization · Lifetime bracket fill strategy</p>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <select value={scenarioId} onChange={e => setScenarioId(e.target.value)} style={{ fontSize: 13 }}>
@@ -82,6 +94,7 @@ export default function TaxPlanning() {
       <div className="tab-group" style={{ marginBottom: 16 }}>
         <button className={`tab${tab === 'roth' ? ' active' : ''}`} onClick={() => setTab('roth')}>Roth Conversion</button>
         <button className={`tab${tab === 'ss' ? ' active' : ''}`} onClick={() => setTab('ss')}>Social Security</button>
+        <button className={`tab${tab === 'bracket' ? ' active' : ''}`} onClick={() => setTab('bracket')}>Lifetime Bracket Fill</button>
       </div>
 
       {tab === 'roth' && (
@@ -258,6 +271,114 @@ export default function TaxPlanning() {
                   </div>
                 )}
               </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {tab === 'bracket' && (
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+            <button className="btn-primary" onClick={runBracketFill} disabled={running}>
+              {running ? 'Analyzing…' : '💰 Analyze Lifetime Strategy'}
+            </button>
+          </div>
+
+          {!bracketFillResults && !running && (
+            <div className="card">
+              <div className="empty-state">
+                <div style={{ fontSize: 48, marginBottom: 16 }}>🎯</div>
+                <h3>Lifetime Tax Bracket Fill Strategy</h3>
+                <p style={{ maxWidth: 440, textAlign: 'center' }}>
+                  Analyzes your entire retirement timeline to identify years where you could withdraw
+                  additional funds from tax-deferred accounts without pushing into higher tax brackets.
+                  This can significantly reduce your lifetime tax burden.
+                </p>
+                <button className="btn-primary" onClick={runBracketFill} style={{ marginTop: 16 }}>Run Analysis</button>
+              </div>
+            </div>
+          )}
+
+          {bracketFillResults && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+              <div className="card">
+                <h3 style={{ marginBottom: 12, fontSize: 14, fontWeight: 600 }}>Lifetime Tax Comparison</h3>
+                <div style={{ padding: '12px 0' }}>
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>Current Strategy</div>
+                    <div style={{ fontSize: 18, fontWeight: 700 }}>
+                      {formatCurrency(bracketFillResults.baseline_lifetime_taxes)}
+                    </div>
+                  </div>
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 4 }}>With Bracket Fill Optimization</div>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--accent)' }}>
+                      {formatCurrency(bracketFillResults.optimized_lifetime_taxes)}
+                    </div>
+                  </div>
+                  <div style={{ padding: '12px', background: 'rgba(34,197,94,0.1)', borderRadius: 6, borderLeft: '3px solid var(--green)' }}>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 2 }}>Potential Lifetime Savings</div>
+                    <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--green)' }}>
+                      {formatCurrency(bracketFillResults.lifetime_tax_savings)}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="card">
+                <h3 style={{ marginBottom: 12, fontSize: 14, fontWeight: 600 }}>Summary</h3>
+                <div style={{ fontSize: 13, lineHeight: 1.6, color: 'var(--text-muted)' }}>
+                  <div style={{ marginBottom: 12 }}>
+                    <strong style={{ color: 'var(--text)' }}>Opportunities Found:</strong> {bracketFillResults.fill_opportunities?.length || 0} years
+                  </div>
+                  {bracketFillResults.fill_opportunities?.length > 0 && (
+                    <div>
+                      <strong style={{ color: 'var(--text)' }}>Total Recommended Additional Withdrawals:</strong>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--accent)', marginTop: 4 }}>
+                        {formatCurrency(bracketFillResults.recommended_total_additional_withdrawals)}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {bracketFillResults.fill_opportunities && bracketFillResults.fill_opportunities.length > 0 && (
+                <div className="card" style={{ gridColumn: '1 / -1' }}>
+                  <h3 style={{ marginBottom: 12, fontSize: 14, fontWeight: 600 }}>Year-by-Year Opportunities</h3>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Age</th>
+                        <th>Year</th>
+                        <th>Base Income</th>
+                        <th>SS Income</th>
+                        <th>Room to 22%</th>
+                        <th>Recommended Withdrawal</th>
+                        <th>Tax Impact</th>
+                        <th>Potential Savings</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {bracketFillResults.fill_opportunities.map((opp, i) => (
+                        <tr key={i}>
+                          <td><strong>{opp.age}</strong></td>
+                          <td>{opp.year}</td>
+                          <td>{formatCurrency(opp.ordinary_income)}</td>
+                          <td>{formatCurrency(opp.ss_income)}</td>
+                          <td style={{ color: 'var(--accent)' }}>{formatCurrency(opp.space_to_22_bracket)}</td>
+                          <td style={{ fontWeight: 600, color: 'var(--accent)' }}>
+                            {formatCurrency(opp.recommended_withdrawal)}
+                          </td>
+                          <td>{formatCurrency(opp.tax_with_recommendation)}</td>
+                          <td style={{ color: opp.tax_savings > 0 ? 'var(--green)' : 'var(--red)', fontWeight: 500 }}>
+                            {opp.tax_savings > 0 ? '+' : ''}{formatCurrency(opp.tax_savings)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           )}
         </div>

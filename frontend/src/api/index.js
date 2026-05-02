@@ -78,3 +78,5 @@ export const optimizeRothConversion = scenarioId =>
   api.post(`/optimize/roth-conversion/${scenarioId || 'base'}`).then(r => r.data)
 export const optimizeSocialSecurity = scenarioId =>
   api.post(`/optimize/social-security/${scenarioId || 'base'}`).then(r => r.data)
+export const optimizeLifetimeBracketFill = scenarioId =>
+  api.post(`/optimize/lifetime-bracket-fill/${scenarioId || 'base'}`).then(r => r.data)

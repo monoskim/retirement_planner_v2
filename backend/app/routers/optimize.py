@@ -7,7 +7,8 @@ import duckdb
 from ..database import get_db
 from ..engine.roth_optimizer import analyze_roth_conversion
 from ..engine.social_security import compare_all_claiming_ages, break_even_age
-from ..engine.projection import _load_profile, _load_accounts, _load_income_sources, _load_ss
+from ..engine.projection import _load_profile, _load_accounts, _load_income_sources, _load_ss, run_projection
+from ..engine.bracket_filler import analyze_lifetime_bracket_fill
 
 router = APIRouter()
 
@@ -104,3 +105,30 @@ def optimize_social_security(
             f"age_{fra_age}_vs_70": round(breakeven_67_70, 1) if breakeven_67_70 else None,
         },
     }
+
+
+@router.post("/lifetime-bracket-fill/{scenario_id}")
+def optimize_lifetime_bracket_fill(
+    scenario_id: str,
+    conn: duckdb.DuckDBPyConnection = Depends(get_db),
+):
+    """Analyze lifetime bracket fill opportunities across all years."""
+    sid = None if scenario_id == "base" else scenario_id
+
+    profile = _load_profile(conn)
+    if not profile:
+        raise HTTPException(status_code=400, detail="No profile found.")
+
+    # Run full lifetime projection
+    try:
+        projection_results = run_projection(conn, scenario_id=sid)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Projection failed: {str(e)}")
+
+    if not projection_results:
+        raise HTTPException(status_code=400, detail="No projection results generated.")
+
+    # Analyze bracket fill opportunities
+    result = analyze_lifetime_bracket_fill(profile, projection_results)
+
+    return result

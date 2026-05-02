@@ -223,58 +223,101 @@ export default function Simulator() {
           )}
 
           {tab === 'table' && (
-            <div className="card">
-              <div style={{ overflowX: 'auto', maxHeight: '60vh', overflowY: 'auto' }}>
-                <table>
-                  <thead style={{ position: 'sticky', top: 0, zIndex: 1, background: 'var(--surface2)' }}>
-                    <tr>
-                      <th>Year</th><th>Age</th><th>Net Worth</th><th>Liquid</th><th>RE Equity</th>
-                      <th>Income</th><th>Expenses</th><th>Taxes</th><th>Withdrawals</th><th>Surplus</th><th>Solvent</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {results.map((r, i) => (
-                      <tr key={i} style={{ background: !r.is_solvent ? 'rgba(239,68,68,0.08)' : r.age === retirementAge ? 'rgba(79,142,247,0.06)' : '' }}>
-                        <td>{r.year}</td>
-                        <td>{r.age}</td>
-                        <td style={{ color: r.total_net_worth < 0 ? 'var(--red)' : '' }}>{formatCurrency(r.total_net_worth)}</td>
-                        <td>{formatCurrency(r.liquid_portfolio)}</td>
-                        <td>{formatCurrency(r.real_estate_equity)}</td>
-                        <td style={{ color: 'var(--green)' }}>
-                          <BreakdownTooltip value={r.income} breakdown={r._income_detail} />
-                        </td>
-                        <td style={{ color: 'var(--red)' }}>
-                          <BreakdownTooltip value={r.expenses} breakdown={r._expenses_detail} />
-                        </td>
-                        <td>
-                          <BreakdownTooltip
-                            value={r.taxes}
-                            breakdown={r._taxes_detail}
-                            formatEntry={(k, v) =>
-                              k === 'effective_rate' || k === 'marginal_rate' ? `${v}%` : formatCurrency(v)
-                            }
-                          />
-                        </td>
-                        <td>
-                          <BreakdownTooltip value={r.withdrawals} breakdown={r._withdrawals_detail} />
-                        </td>
-                        <td style={{ color: r.cash_surplus_deficit >= 0 ? 'var(--green)' : 'var(--red)' }}>
-                          <BreakdownTooltip
-                            value={r.cash_surplus_deficit}
-                            breakdown={r._surplus_detail}
-                            formatEntry={(k, v) => {
-                              if (k === 'total') return formatCurrency(v)
-                              return `${v >= 0 ? '+' : '-'}${formatCurrency(Math.abs(v))}`
-                            }}
-                          />
-                        </td>
-                        <td>{r.is_solvent ? '✓' : '⚠'}</td>
+            <>
+              <div className="card">
+                <div style={{ overflowX: 'auto', maxHeight: '60vh', overflowY: 'auto' }}>
+                  <table>
+                    <thead style={{ position: 'sticky', top: 0, zIndex: 1, background: 'var(--surface2)' }}>
+                      <tr>
+                        <th>Year</th><th>Age</th><th>Net Worth</th><th>Liquid</th><th>RE Equity</th>
+                        <th>Income</th><th>Expenses</th><th>Taxes</th><th>Withdrawals</th><th>Surplus</th><th>Solvent</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {results.map((r, i) => (
+                        <tr key={i} style={{ background: !r.is_solvent ? 'rgba(239,68,68,0.08)' : r.age === retirementAge ? 'rgba(79,142,247,0.06)' : '' }}>
+                          <td>{r.year}</td>
+                          <td>{r.age}</td>
+                          <td style={{ color: r.total_net_worth < 0 ? 'var(--red)' : '' }}>{formatCurrency(r.total_net_worth)}</td>
+                          <td>{formatCurrency(r.liquid_portfolio)}</td>
+                          <td>{formatCurrency(r.real_estate_equity)}</td>
+                          <td style={{ color: 'var(--green)' }}>
+                            <BreakdownTooltip value={r.income} breakdown={r._income_detail} />
+                          </td>
+                          <td style={{ color: 'var(--red)' }}>
+                            <BreakdownTooltip value={r.expenses} breakdown={r._expenses_detail} />
+                          </td>
+                          <td>
+                            <BreakdownTooltip
+                              value={r.taxes}
+                              breakdown={r._taxes_detail}
+                              formatEntry={(k, v) =>
+                                k === 'effective_rate' || k === 'marginal_rate' ? `${v}%` : formatCurrency(v)
+                              }
+                            />
+                          </td>
+                          <td>
+                            <BreakdownTooltip value={r.withdrawals} breakdown={r._withdrawals_detail} />
+                          </td>
+                          <td style={{ color: r.cash_surplus_deficit >= 0 ? 'var(--green)' : 'var(--red)' }}>
+                            <BreakdownTooltip
+                              value={r.cash_surplus_deficit}
+                              breakdown={r._surplus_detail}
+                              formatEntry={(k, v) => {
+                                if (k === 'total') return formatCurrency(v)
+                                return `${v >= 0 ? '+' : '-'}${formatCurrency(Math.abs(v))}`
+                              }}
+                            />
+                          </td>
+                          <td>{r.is_solvent ? '✓' : '⚠'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
+
+              <div className="card" style={{ marginTop: 12 }}>
+                <h3 style={{ marginBottom: 8, fontSize: 13, fontWeight: 600 }}>Taxable Basis Tracker (Pooled Basis)</h3>
+                <p className="small-muted" style={{ marginTop: 0, marginBottom: 10 }}>
+                  Pooled-basis model: each taxable withdrawal is treated as a pro-rata split of principal and gains.
+                </p>
+                <div style={{ overflowX: 'auto', maxHeight: '44vh', overflowY: 'auto' }}>
+                  <table>
+                    <thead style={{ position: 'sticky', top: 0, zIndex: 1, background: 'var(--surface2)' }}>
+                      <tr>
+                        <th>Year</th>
+                        <th>Age</th>
+                        <th>Taxable Balance</th>
+                        <th>Principal Remaining (Basis)</th>
+                        <th>Modeled Unrealized Gain</th>
+                        <th>Modeled Gain Ratio</th>
+                        <th>Next $10k: Principal</th>
+                        <th>Next $10k: Gains</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {results.map((r, i) => {
+                        const t = r.taxable_basis_tracker || {}
+                        const ratioPct = (t.total_modeled_gain_ratio || 0) * 100
+                        return (
+                          <tr key={`tb-${i}`}>
+                            <td>{r.year}</td>
+                            <td>{r.age}</td>
+                            <td>{formatCurrency(t.total_taxable_balance || 0)}</td>
+                            <td>{formatCurrency(t.total_basis_remaining || 0)}</td>
+                            <td>{formatCurrency(t.total_modeled_unrealized_gain || 0)}</td>
+                            <td>{ratioPct.toFixed(2)}%</td>
+                            <td>{formatCurrency(t.total_modeled_next_principal || 0)}</td>
+                            <td>{formatCurrency(t.total_modeled_next_gains || 0)}</td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </>
           )}
 
 
