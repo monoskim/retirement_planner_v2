@@ -1,5 +1,12 @@
 import { useState, useEffect } from 'react'
-import { getAccounts, getIncomeSources, createAccount, updateAccount, deleteAccount } from '../api'
+import {
+  getAccounts,
+  getIncomeSources,
+  createAccount,
+  updateAccount,
+  deleteAccount,
+  getSimulationResults,
+} from '../api'
 import { FormField, Modal, EmptyState, formatCurrency } from '../components/shared'
 
 const ACCOUNT_TYPES = ['401k','403b','trad_ira','roth_ira','roth_401k','taxable','hsa','pension','cash']
@@ -19,6 +26,9 @@ export default function Accounts() {
   const [error, setError] = useState('')
   const [loadError, setLoadError] = useState('')
   const [loading, setLoading] = useState(true)
+  const [simulationRows, setSimulationRows] = useState([])
+  const [simulationError, setSimulationError] = useState('')
+  const [selectedFlowAccountId, setSelectedFlowAccountId] = useState('')
 
   const load = () => getAccounts()
     .then(data => setAccounts(data))
@@ -29,10 +39,31 @@ export default function Accounts() {
     .then(data => setIncomeSources(data))
     .catch(() => setIncomeSources([]))
 
+  const loadSimulation = () => getSimulationResults('base')
+    .then(data => {
+      setSimulationRows(Array.isArray(data.results) ? data.results : [])
+      setSimulationError('')
+    })
+    .catch(() => {
+      setSimulationRows([])
+      setSimulationError('Run a simulation to view yearly account flow details.')
+    })
+
   useEffect(() => {
     load()
     loadIncome()
+    loadSimulation()
   }, [])
+
+  useEffect(() => {
+    if (!accounts.length) {
+      setSelectedFlowAccountId('')
+      return
+    }
+    if (!selectedFlowAccountId || !accounts.some(a => a.id === selectedFlowAccountId)) {
+      setSelectedFlowAccountId(accounts[0].id)
+    }
+  }, [accounts, selectedFlowAccountId])
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
@@ -87,6 +118,20 @@ export default function Accounts() {
   const displayTotalContribution = account => (
     displayEmployeeContribution(account) + displayEmployerContribution(account)
   )
+
+  const flowRows = simulationRows
+    .map(row => {
+      const flow = row.account_flows?.[selectedFlowAccountId]
+      if (!flow) return null
+      return {
+        year: row.year,
+        age: row.age,
+        ...flow,
+      }
+    })
+    .filter(Boolean)
+
+  const hasAccountFlowData = flowRows.length > 0
 
   return (
     <div>
@@ -158,6 +203,71 @@ export default function Accounts() {
             </table>
           </div>
         )}
+
+      <div className="card" style={{ marginTop: 16 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, gap: 8, flexWrap: 'wrap' }}>
+          <div>
+            <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600 }}>Yearly Account Flow (Latest Simulation)</h3>
+            <p className="page-subtitle" style={{ margin: 0 }}>Start balance, return, withdrawals, and ending balance by year</p>
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <select
+              value={selectedFlowAccountId}
+              onChange={e => setSelectedFlowAccountId(e.target.value)}
+              disabled={!accounts.length}
+              style={{ minWidth: 220 }}
+            >
+              {accounts.map(a => (
+                <option key={a.id} value={a.id}>{a.name}</option>
+              ))}
+            </select>
+            <button className="btn-secondary" onClick={loadSimulation}>Refresh</button>
+          </div>
+        </div>
+
+        {simulationError && <p className="page-subtitle" style={{ marginBottom: 0 }}>{simulationError}</p>}
+
+        {!simulationError && !hasAccountFlowData && (
+          <p className="page-subtitle" style={{ marginBottom: 0 }}>
+            This cached simulation does not include account flow details yet. Re-run simulation and refresh here.
+          </p>
+        )}
+
+        {!simulationError && hasAccountFlowData && (
+          <div style={{ overflowX: 'auto', maxHeight: '60vh', overflowY: 'auto' }}>
+            <table>
+              <thead style={{ position: 'sticky', top: 0, zIndex: 1, background: 'var(--surface2)' }}>
+                <tr>
+                  <th>Year</th>
+                  <th>Age</th>
+                  <th>Start Balance</th>
+                  <th>Contrib</th>
+                  <th>Match</th>
+                  <th>Return</th>
+                  <th>Withdrawals</th>
+                  <th>RMD</th>
+                  <th>End Balance</th>
+                </tr>
+              </thead>
+              <tbody>
+                {flowRows.map(r => (
+                  <tr key={r.year}>
+                    <td>{r.year}</td>
+                    <td>{r.age}</td>
+                    <td>{formatCurrency(r.start_balance)}</td>
+                    <td>{formatCurrency(r.contribution)}</td>
+                    <td>{formatCurrency(r.employer_match)}</td>
+                    <td style={{ color: r.return_amount >= 0 ? 'var(--green)' : 'var(--red)' }}>{formatCurrency(r.return_amount)}</td>
+                    <td style={{ color: 'var(--red)' }}>{formatCurrency(r.withdrawal_outflow)}</td>
+                    <td style={{ color: 'var(--red)' }}>{formatCurrency(r.rmd_outflow)}</td>
+                    <td>{formatCurrency(r.ending_balance)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
 
       {modal && (
         <Modal

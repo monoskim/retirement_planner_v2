@@ -7,13 +7,84 @@ import {
 } from 'recharts'
 
 const normalizeProjection = projection =>
-  (projection ?? []).map(row => ({
-    ...row,
-    income: typeof row.income === 'number' ? row.income : row.income?.total ?? 0,
-    expenses: typeof row.expenses === 'number' ? row.expenses : row.expenses?.total ?? 0,
-    taxes: typeof row.taxes === 'number' ? row.taxes : row.taxes?.total ?? 0,
-    withdrawals: typeof row.withdrawals === 'number' ? row.withdrawals : row.withdrawals?.total ?? 0,
-  }))
+  (projection ?? []).map(row => {
+    const incomeTotal = typeof row.income === 'number' ? row.income : row.income?.total ?? 0
+    const expensesTotal = typeof row.expenses === 'number' ? row.expenses : row.expenses?.total ?? 0
+    const taxesTotal = typeof row.taxes === 'number' ? row.taxes : row.taxes?.total ?? 0
+    const withdrawalsTotal = typeof row.withdrawals === 'number' ? row.withdrawals : row.withdrawals?.total ?? 0
+
+    return {
+      ...row,
+      income: incomeTotal,
+      _income_detail: typeof row.income === 'object' ? row.income : null,
+      expenses: expensesTotal,
+      _expenses_detail: typeof row.expenses === 'object' ? row.expenses : null,
+      taxes: taxesTotal,
+      _taxes_detail: typeof row.taxes === 'object' ? row.taxes : null,
+      withdrawals: withdrawalsTotal,
+      _withdrawals_detail: typeof row.withdrawals === 'object' ? row.withdrawals : null,
+      _surplus_detail: {
+        income_inflow: incomeTotal,
+        withdrawals_inflow: withdrawalsTotal,
+        expenses_outflow: -expensesTotal,
+        taxes_outflow: -taxesTotal,
+        total: row.cash_surplus_deficit ?? 0,
+      },
+    }
+  })
+
+function BreakdownTooltip({ value, breakdown, formatEntry }) {
+  const [visible, setVisible] = useState(false)
+  const [pos, setPos] = useState({ x: 0, y: 0 })
+
+  const entries = breakdown
+    ? Object.entries(breakdown).filter(([k, v]) => k !== 'total' && v !== 0)
+    : []
+
+  if (entries.length === 0) return <span>{formatEntry ? formatEntry('total', value) : formatCurrency(value)}</span>
+
+  return (
+    <span
+      style={{ cursor: 'help', borderBottom: '1px dotted var(--text-muted)' }}
+      onMouseEnter={e => { setVisible(true); setPos({ x: e.clientX, y: e.clientY }) }}
+      onMouseMove={e => setPos({ x: e.clientX, y: e.clientY })}
+      onMouseLeave={() => setVisible(false)}
+    >
+      {formatEntry ? formatEntry('total', value) : formatCurrency(value)}
+      {visible && (
+        <div style={{
+          position: 'fixed',
+          left: pos.x + 14,
+          top: pos.y + 14,
+          zIndex: 9999,
+          background: 'var(--surface2)',
+          border: '1px solid var(--border)',
+          borderRadius: 6,
+          padding: '8px 12px',
+          fontSize: 12,
+          pointerEvents: 'none',
+          boxShadow: '0 4px 16px rgba(0,0,0,0.35)',
+          minWidth: 200,
+          whiteSpace: 'nowrap',
+        }}>
+          <div style={{ fontWeight: 600, marginBottom: 6, borderBottom: '1px solid var(--border)', paddingBottom: 4 }}>Breakdown</div>
+          {entries.map(([k, v]) => (
+            <div key={k} style={{ display: 'flex', justifyContent: 'space-between', gap: 20, marginBottom: 3 }}>
+              <span style={{ color: 'var(--text-muted)', textTransform: 'capitalize' }}>
+                {k.replace(/_/g, ' ')}
+              </span>
+              <span>{formatEntry ? formatEntry(k, v) : formatCurrency(v)}</span>
+            </div>
+          ))}
+          <div style={{ borderTop: '1px solid var(--border)', marginTop: 4, paddingTop: 4, display: 'flex', justifyContent: 'space-between', gap: 20, fontWeight: 600 }}>
+            <span>Total</span>
+            <span>{formatEntry ? formatEntry('total', value) : formatCurrency(value)}</span>
+          </div>
+        </div>
+      )}
+    </span>
+  )
+}
 
 export default function Simulator() {
   const [scenarios, setScenarios] = useState([])
@@ -153,9 +224,9 @@ export default function Simulator() {
 
           {tab === 'table' && (
             <div className="card">
-              <div style={{ overflowX: 'auto' }}>
+              <div style={{ overflowX: 'auto', maxHeight: '60vh', overflowY: 'auto' }}>
                 <table>
-                  <thead>
+                  <thead style={{ position: 'sticky', top: 0, zIndex: 1, background: 'var(--surface2)' }}>
                     <tr>
                       <th>Year</th><th>Age</th><th>Net Worth</th><th>Liquid</th><th>RE Equity</th>
                       <th>Income</th><th>Expenses</th><th>Taxes</th><th>Withdrawals</th><th>Surplus</th><th>Solvent</th>
@@ -169,11 +240,34 @@ export default function Simulator() {
                         <td style={{ color: r.total_net_worth < 0 ? 'var(--red)' : '' }}>{formatCurrency(r.total_net_worth)}</td>
                         <td>{formatCurrency(r.liquid_portfolio)}</td>
                         <td>{formatCurrency(r.real_estate_equity)}</td>
-                        <td style={{ color: 'var(--green)' }}>{formatCurrency(r.income)}</td>
-                        <td style={{ color: 'var(--red)' }}>{formatCurrency(r.expenses)}</td>
-                        <td>{formatCurrency(r.taxes)}</td>
-                        <td>{formatCurrency(r.withdrawals)}</td>
-                        <td style={{ color: r.cash_surplus_deficit >= 0 ? 'var(--green)' : 'var(--red)' }}>{formatCurrency(r.cash_surplus_deficit)}</td>
+                        <td style={{ color: 'var(--green)' }}>
+                          <BreakdownTooltip value={r.income} breakdown={r._income_detail} />
+                        </td>
+                        <td style={{ color: 'var(--red)' }}>
+                          <BreakdownTooltip value={r.expenses} breakdown={r._expenses_detail} />
+                        </td>
+                        <td>
+                          <BreakdownTooltip
+                            value={r.taxes}
+                            breakdown={r._taxes_detail}
+                            formatEntry={(k, v) =>
+                              k === 'effective_rate' || k === 'marginal_rate' ? `${v}%` : formatCurrency(v)
+                            }
+                          />
+                        </td>
+                        <td>
+                          <BreakdownTooltip value={r.withdrawals} breakdown={r._withdrawals_detail} />
+                        </td>
+                        <td style={{ color: r.cash_surplus_deficit >= 0 ? 'var(--green)' : 'var(--red)' }}>
+                          <BreakdownTooltip
+                            value={r.cash_surplus_deficit}
+                            breakdown={r._surplus_detail}
+                            formatEntry={(k, v) => {
+                              if (k === 'total') return formatCurrency(v)
+                              return `${v >= 0 ? '+' : '-'}${formatCurrency(Math.abs(v))}`
+                            }}
+                          />
+                        </td>
                         <td>{r.is_solvent ? '✓' : '⚠'}</td>
                       </tr>
                     ))}

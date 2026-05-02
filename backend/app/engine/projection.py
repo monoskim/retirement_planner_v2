@@ -196,6 +196,23 @@ def run_projection(
         years_elapsed = age - current_age
         is_working = age < retirement_age
 
+        # Track year-by-year account flow details for auditability.
+        account_year_flows: dict[str, dict] = {
+            acc["id"]: {
+                "name": acc["name"],
+                "type": acc["account_type"],
+                "start_balance": balances.get(acc["id"], 0.0),
+                "contribution": 0.0,
+                "employer_match": 0.0,
+                "total_contributions": 0.0,
+                "return_amount": 0.0,
+                "rmd_outflow": 0.0,
+                "withdrawal_outflow": 0.0,
+                "ending_balance": 0.0,
+            }
+            for acc in accounts
+        }
+
         # ---- 1. CONTRIBUTIONS (pre-retirement) ----
         if is_working:
             # Compute salary for this year (salary-type income sources active at this age)
@@ -232,12 +249,23 @@ def run_projection(
                         match = 0.0
 
                     balances[acc["id"]] = balances.get(acc["id"], 0.0) + contrib + match
+                    flow = account_year_flows.get(acc["id"])
+                    if flow is not None:
+                        flow["contribution"] += contrib
+                        flow["employer_match"] += match
+                        flow["total_contributions"] += contrib + match
 
         # ---- 2. INVESTMENT RETURNS ----
         for acc in accounts:
             ret = (return_rate_override if return_rate_override is not None
                    else acc.get("expected_return_pct", 7.0)) / 100.0
-            balances[acc["id"]] = balances.get(acc["id"], 0.0) * (1.0 + ret)
+            acc_id = acc["id"]
+            before_return = balances.get(acc_id, 0.0)
+            after_return = before_return * (1.0 + ret)
+            balances[acc_id] = after_return
+            flow = account_year_flows.get(acc_id)
+            if flow is not None:
+                flow["return_amount"] += after_return - before_return
 
         # ---- 3. INCOME SOURCES ----
         income_breakdown: dict[str, float] = {}
@@ -335,11 +363,20 @@ def run_projection(
 
         total_expenses = sum(expense_breakdown.values())
 
+        # Include primary residence negative cash flow directly in expenses
+        # so table totals and surplus math are transparent.
+        if primary_residence_outflow > 0:
+            expense_breakdown["primary_residence_housing"] = round(primary_residence_outflow, 2)
+            total_expenses += primary_residence_outflow
+
         # ---- 7. RMDs ----
         rmd_map = calculate_all_rmds(accounts, balances, age)
         total_rmd = sum(rmd_map.values())
         for acc_id, rmd_amt in rmd_map.items():
             balances[acc_id] = max(0.0, balances.get(acc_id, 0.0) - rmd_amt)
+            flow = account_year_flows.get(acc_id)
+            if flow is not None:
+                flow["rmd_outflow"] += rmd_amt
 
         # ---- 8. TAX CALCULATION (2-pass) ----
         # Pass 1: estimate tax without withdrawal income
@@ -372,6 +409,11 @@ def run_projection(
                 marginal_tax_rate=tax_p1.marginal_rate,
             )
 
+        for acc_id, amt in withdrawal_result.per_account.items():
+            flow = account_year_flows.get(acc_id)
+            if flow is not None:
+                flow["withdrawal_outflow"] += amt
+
         # Additional ordinary income from tax-deferred withdrawals
         additional_ordinary = withdrawal_result.tax_deferred_withdrawn
 
@@ -390,7 +432,13 @@ def run_projection(
         total_net_worth = liquid_portfolio + real_estate_equity
 
         total_income = sum(income_breakdown.values()) + total_rental_taxable + total_rmd
-        cash_surplus_deficit = total_income + withdrawal_result.total_withdrawn - total_expenses - tax_final.total_tax - primary_residence_outflow
+        cash_surplus_deficit = total_income + withdrawal_result.total_withdrawn - total_expenses - tax_final.total_tax
+
+        for acc in accounts:
+            acc_id = acc["id"]
+            flow = account_year_flows.get(acc_id)
+            if flow is not None:
+                flow["ending_balance"] = balances.get(acc_id, 0.0)
 
         snapshot = {
             "year": year,
@@ -406,8 +454,24 @@ def run_projection(
                 }
                 for acc in accounts
             },
+            "account_flows": {
+                acc_id: {
+                    "name": flow["name"],
+                    "type": flow["type"],
+                    "start_balance": round(flow["start_balance"], 2),
+                    "contribution": round(flow["contribution"], 2),
+                    "employer_match": round(flow["employer_match"], 2),
+                    "total_contributions": round(flow["total_contributions"], 2),
+                    "return_amount": round(flow["return_amount"], 2),
+                    "rmd_outflow": round(flow["rmd_outflow"], 2),
+                    "withdrawal_outflow": round(flow["withdrawal_outflow"], 2),
+                    "ending_balance": round(flow["ending_balance"], 2),
+                }
+                for acc_id, flow in account_year_flows.items()
+            },
             "income": {
                 **{k: round(v, 2) for k, v in income_breakdown.items()},
+                **({"rental_income": round(total_rental_taxable, 2)} if total_rental_taxable else {}),
                 "rmd_withdrawals": round(total_rmd, 2),
                 "total": round(sum(income_breakdown.values()) + total_rmd + total_rental_taxable, 2),
             },
@@ -416,6 +480,7 @@ def run_projection(
                 **{k: round(v, 2) for k, v in expense_breakdown.items()},
                 "total": round(total_expenses, 2),
             },
+            "primary_residence_outflow": round(primary_residence_outflow, 2),
             "taxes": {
                 "federal_income_tax": round(tax_final.federal_income_tax, 2),
                 "capital_gains_tax": round(tax_final.capital_gains_tax, 2),
