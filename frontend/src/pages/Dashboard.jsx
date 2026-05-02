@@ -63,37 +63,103 @@ function Readout({ value, unit, min, max, step, onChange }) {
   const startX   = useRef(0)
   const startV   = useRef(0)
   const decimals = step < 1 ? 1 : 0
+  const [editing, setEditing] = useState(false)
+  const [inputValue, setInputValue] = useState(value)
+  const inputRef = useRef(null)
+
+  useEffect(() => {
+    if (!editing) setInputValue(value)
+  }, [value, editing])
 
   const onDown = useCallback(e => {
+    if (editing) return;
     dragging.current = true; startX.current = e.clientX; startV.current = value
     e.currentTarget.setPointerCapture(e.pointerId)
-  }, [value])
+  }, [value, editing])
   const onMove = useCallback(e => {
-    if (!dragging.current) return
+    if (!dragging.current || editing) return
     const dx = (e.clientX - startX.current) * (max - min) / 220
     const v  = Math.max(min, Math.min(max, startV.current + dx))
     onChange(Math.round(v / step) * step)
-  }, [min, max, step, onChange])
+  }, [min, max, step, onChange, editing])
   const onUp = useCallback(() => { dragging.current = false }, [])
+
+  const handleDisplayClick = () => {
+    setEditing(true)
+    setTimeout(() => { inputRef.current?.focus() }, 0)
+  }
+
+  const handleInputChange = e => {
+    setInputValue(e.target.value)
+  }
+
+  const commitInput = () => {
+    let v = parseFloat(inputValue)
+    if (isNaN(v)) v = value
+    v = Math.max(min, Math.min(max, Math.round(v / step) * step))
+    setEditing(false)
+    if (v !== value) onChange(v)
+  }
+
+  const handleInputBlur = () => {
+    commitInput()
+  }
+
+  const handleInputKeyDown = e => {
+    if (e.key === 'Enter') {
+      commitInput()
+    } else if (e.key === 'Escape') {
+      setEditing(false)
+      setInputValue(value)
+    }
+  }
 
   return (
     <div style={{ display:'flex', alignItems:'baseline', gap:4 }}>
-      <motion.div
-        onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp}
-        whileTap={{ scale:.97 }}
-        style={{
-          fontFamily:"'SF Mono','Menlo',monospace",
-          background:'#F8F9FB', border:'1px solid #E2E8F0',
-          borderRadius:8, padding:'6px 14px', fontSize:26, fontWeight:600,
-          letterSpacing:'-.02em', color:'#111827',
-          boxShadow:'inset 0 1px 2px rgba(0,0,0,0.05)',
-          cursor:'ew-resize', userSelect:'none', minWidth:80, textAlign:'right',
-          transition:'border-color .15s',
-        }}
-        whileHover={{ borderColor:'#2563EB' }}
-      >
-        <AnimatedNumber value={value} decimals={decimals} />
-      </motion.div>
+      {editing ? (
+        <input
+          ref={inputRef}
+          type="number"
+          value={inputValue}
+          min={min}
+          max={max}
+          step={step}
+          onChange={handleInputChange}
+          onBlur={handleInputBlur}
+          onKeyDown={handleInputKeyDown}
+          style={{
+            fontFamily:"'SF Mono','Menlo',monospace",
+            background:'#F8F9FB', border:'1px solid #2563EB',
+            borderRadius:8, padding:'6px 14px', fontSize:26, fontWeight:600,
+            letterSpacing:'-.02em', color:'#111827',
+            boxShadow:'inset 0 1px 2px rgba(0,0,0,0.05)',
+            minWidth:80, textAlign:'right', outline:'none',
+            transition:'border-color .15s',
+          }}
+        />
+      ) : (
+        <motion.div
+          onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp}
+          whileTap={{ scale:.97 }}
+          style={{
+            fontFamily:"'SF Mono','Menlo',monospace",
+            background:'#F8F9FB', border:'1px solid #E2E8F0',
+            borderRadius:8, padding:'6px 14px', fontSize:26, fontWeight:600,
+            letterSpacing:'-.02em', color:'#111827',
+            boxShadow:'inset 0 1px 2px rgba(0,0,0,0.05)',
+            cursor:'ew-resize', userSelect:'none', minWidth:80, textAlign:'right',
+            transition:'border-color .15s',
+          }}
+          whileHover={{ borderColor:'#2563EB' }}
+          tabIndex={0}
+          onClick={handleDisplayClick}
+          onKeyDown={e => { if (e.key === 'Enter') handleDisplayClick() }}
+          role="button"
+          aria-label="Edit value"
+        >
+          <AnimatedNumber value={value} decimals={decimals} />
+        </motion.div>
+      )}
       <span style={{ fontSize:13, color:'#6B7280', fontFamily:"'SF Mono',Menlo,monospace" }}>{unit}</span>
     </div>
   )
@@ -253,7 +319,7 @@ export default function Dashboard() {
         <PrecisionFader label="Savings Rate"    value={params.savingsRate}  min={0}  max={50} step={.5}  unit="%"  onChange={set('savingsRate')}  />
         <PrecisionFader label="Annual Inflation" value={params.inflation}   min={0}  max={10} step={.1}  unit="%"  onChange={set('inflation')}    />
         <PrecisionFader label="Market Return"    value={params.marketReturn} min={0}  max={20} step={.1}  unit="%"  onChange={set('marketReturn')}  />
-        <PrecisionFader label="Retire Age"       value={params.targetAge}   min={50} max={80} step={1}   unit="yr" onChange={set('targetAge')}    />
+        <PrecisionFader label="Retire Age"       value={params.targetAge}   min={40} max={80} step={1}   unit="yr" onChange={set('targetAge')}    />
 
         {/* Status readout */}
         <div style={{ padding:'16px 20px', marginTop:'auto', borderTop:'1px solid #E2E8F0', background:'#FAFBFC' }}>
