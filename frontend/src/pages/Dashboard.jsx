@@ -4,7 +4,9 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, ReferenceLine,
 } from 'recharts'
-import { getProfile, getAccounts, getIncomeSources, getExpenses } from '../api'
+import { getProfile, getAccounts, getIncomeSources, getExpenses, getSocialSecurity } from '../api'
+
+const CLAIMING_AGE_STORAGE_KEY = 'retirement-planner.social-security.claiming-age'
 
 /* ── Projection engine (client-side) ──────────────────────── */
 function project({ savingsRate, inflation, marketReturn, targetAge }, startAge, portfolioK, annualIncome, annualExpenses) {
@@ -261,15 +263,18 @@ export default function Dashboard() {
   const [portfolioK,     setPortfolioK]     = useState(500)
   const [annualIncome,   setAnnualIncome]   = useState(150000)
   const [annualExpenses, setAnnualExpenses] = useState(80000)
+  const [socialSecurityClaimingAge, setSocialSecurityClaimingAge] = useState(null)
   const [loaded,         setLoaded]         = useState(false)
 
   useEffect(() => {
+    const storedClaimingAge = window.localStorage.getItem(CLAIMING_AGE_STORAGE_KEY)
     Promise.all([
       getProfile().catch(() => null),
       getAccounts().catch(() => []),
       getIncomeSources().catch(() => []),
       getExpenses().catch(() => []),
-    ]).then(([prof, accs, inc, exp]) => {
+      getSocialSecurity().catch(() => null),
+    ]).then(([prof, accs, inc, exp, socialSecurity]) => {
       if (prof?.birth_date) {
         const age = new Date().getFullYear() - new Date(prof.birth_date).getFullYear()
         setStartAge(age)
@@ -279,6 +284,8 @@ export default function Dashboard() {
       if (accs?.length) setPortfolioK(Math.round(accs.reduce((s, a) => s + (a.balance || 0), 0) / 1000))
       if (inc?.length)  setAnnualIncome(inc.reduce((s, i) => s + (i.annual_amount || 0), 0) || 150000)
       if (exp?.length)  setAnnualExpenses(exp.reduce((s, e) => s + (e.annual_amount || 0), 0) || 80000)
+      const fallbackClaimingAge = storedClaimingAge ? Number(storedClaimingAge) : null
+      setSocialSecurityClaimingAge(socialSecurity?.claiming_age ?? fallbackClaimingAge)
       setLoaded(true)
     })
   }, [])
@@ -410,6 +417,12 @@ export default function Dashboard() {
                 stroke="#CBD5E1" strokeDasharray="4 4"
                 label={{ value:'Retire', position:'insideTopRight', fill:'#9CA3AF', fontSize:11 }}
               />
+              {socialSecurityClaimingAge && (
+                <ReferenceLine x={socialSecurityClaimingAge}
+                  stroke="#CBD5E1" strokeDasharray="4 4"
+                  label={{ value:'Soc Sec', position:'insideTopLeft', fill:'#9CA3AF', fontSize:11 }}
+                />
+              )}
               <Line
                 type="monotone" dataKey="value"
                 stroke="#2563EB" strokeWidth={2.5}

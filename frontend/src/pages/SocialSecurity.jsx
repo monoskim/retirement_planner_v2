@@ -3,6 +3,8 @@ import { getSocialSecurity, saveSocialSecurity, optimizeSocialSecurity } from '.
 import { FormField, formatCurrency } from '../components/shared'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 
+const CLAIMING_AGE_STORAGE_KEY = 'retirement-planner.social-security.claiming-age'
+
 const DEFAULT = {
   fra_monthly_benefit: 0, fra_age: 67, claiming_age: 67,
   spouse_fra_monthly_benefit: 0, spouse_fra_age: 67, spouse_claiming_age: null, notes: '',
@@ -18,6 +20,10 @@ export default function SocialSecurity() {
   useEffect(() => {
     getSocialSecurity().then(d => { if (d) setForm({ ...DEFAULT, ...d }) }).catch(() => {})
   }, [])
+
+  useEffect(() => {
+    window.localStorage.setItem(CLAIMING_AGE_STORAGE_KEY, String(form.claiming_age))
+  }, [form.claiming_age])
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
