@@ -1,51 +1,59 @@
 import { useState, useEffect } from 'react'
-import { getScenarios, runSimulation, runMonteCarlo } from '../api'
-import { formatCurrency } from '../components/shared'
+import { getScenarios, runSimulation } from '../api'
+import { formatCurrency, MeasuredChart } from '../components/shared'
 import {
-  ComposedChart, AreaChart, Area, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip,
+  ComposedChart, Area, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   Legend, ResponsiveContainer, ReferenceLine,
 } from 'recharts'
+
+const normalizeProjection = projection =>
+  (projection ?? []).map(row => ({
+    ...row,
+    income: typeof row.income === 'number' ? row.income : row.income?.total ?? 0,
+    expenses: typeof row.expenses === 'number' ? row.expenses : row.expenses?.total ?? 0,
+    taxes: typeof row.taxes === 'number' ? row.taxes : row.taxes?.total ?? 0,
+    withdrawals: typeof row.withdrawals === 'number' ? row.withdrawals : row.withdrawals?.total ?? 0,
+  }))
 
 export default function Simulator() {
   const [scenarios, setScenarios] = useState([])
   const [scenarioId, setScenarioId] = useState('base')
   const [results, setResults] = useState(null)
-  const [mcResults, setMcResults] = useState(null)
+  const [chartsReady, setChartsReady] = useState(false)
   const [tab, setTab] = useState('portfolio')
   const [running, setRunning] = useState(false)
-  const [runningMc, setRunningMc] = useState(false)
   const [error, setError] = useState('')
-  const [nSim, setNSim] = useState(3000)
+  const scenarioOptions = scenarios.length > 0 ? scenarios : [{ id: 'base', name: 'Base Plan', is_base: true }]
 
   useEffect(() => {
-    getScenarios().then(s => { setScenarios(s); if (s.length > 0) setScenarioId(s.find(x => x.is_base)?.id ?? s[0].id) })
+    getScenarios().then(s => {
+      setScenarios(s)
+      if (s.length > 0) {
+        setScenarioId(s.find(x => x.is_base)?.id ?? s[0].id)
+      }
+    })
   }, [])
 
+  useEffect(() => {
+    if (!results) {
+      setChartsReady(false)
+      return undefined
+    }
+
+    const frameId = requestAnimationFrame(() => setChartsReady(true))
+    return () => cancelAnimationFrame(frameId)
+  }, [results, tab])
+
   const run = async () => {
-    setRunning(true); setError(''); setMcResults(null)
+    setRunning(true); setError(''); setChartsReady(false)
     try {
       const res = await runSimulation(scenarioId)
-      setResults(res.projection)
+      setResults(normalizeProjection(res.results ?? res.projection))
     } catch (err) {
       setError(err.response?.data?.detail || 'Simulation failed — ensure profile, accounts, and income are configured.')
     }
     setRunning(false)
   }
-
-  const runMC = async () => {
-    setRunningMc(true); setError('')
-    try {
-      const res = await runMonteCarlo(scenarioId, { n_simulations: nSim })
-      setMcResults(res)
-    } catch (err) {
-      setError(err.response?.data?.detail || 'Monte Carlo failed')
-    }
-    setRunningMc(false)
-  }
-
-  const mcChartData = mcResults?.percentiles_by_year?.map(r => ({
-    age: r.age, p10: r.p10, p25: r.p25, p50: r.p50, p75: r.p75, p90: r.p90,
-  }))
 
   const retirementAge = results?.find(r => r.is_working === false)?.age
 
@@ -58,16 +66,12 @@ export default function Simulator() {
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <select value={scenarioId} onChange={e => setScenarioId(e.target.value)} style={{ fontSize: 13 }}>
-            <option value="base">— Base Plan —</option>
-            {scenarios.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            {scenarioOptions.map(s => <option key={s.id} value={s.id}>{s.is_base ? 'Base Plan' : s.name}</option>)}
           </select>
           <button className="btn-primary" onClick={run} disabled={running}>
             {running ? 'Running…' : '▶ Run Simulation'}
           </button>
-          <button className="btn-secondary" onClick={runMC} disabled={runningMc || !results}>
-            {runningMc ? 'Running MC…' : '🎲 Monte Carlo'}
-          </button>
-          <input type="number" value={nSim} onChange={e => setNSim(+e.target.value)} min={100} max={10000} style={{ width: 80, fontSize: 13 }} title="Simulations" />
+
         </div>
       </div>
 
@@ -91,18 +95,11 @@ export default function Simulator() {
               <div className="stat-label">Years Solvent</div>
               <div className="stat-value">{results.filter(r => r.is_solvent).length} / {results.length}</div>
             </div>
-            {mcResults && (
-              <div className="stat-card">
-                <div className="stat-label">MC Success Rate</div>
-                <div className={`stat-value ${mcResults.success_rate >= 90 ? 'green' : mcResults.success_rate >= 70 ? 'yellow' : 'red'}`}>
-                  {mcResults.success_rate.toFixed(1)}%
-                </div>
-              </div>
-            )}
+
           </div>
 
           <div className="tab-group" style={{ marginBottom: 12 }}>
-            {['portfolio','income/expenses','table','monte carlo'].map(t => (
+            {['portfolio','income/expenses','table'].map(t => (
               <button key={t} className={`tab${tab === t ? ' active' : ''}`} onClick={() => setTab(t)}>{t}</button>
             ))}
           </div>
@@ -110,8 +107,9 @@ export default function Simulator() {
           {tab === 'portfolio' && (
             <div className="card">
               <h3 style={{ marginBottom: 12, fontSize: 13, fontWeight: 600 }}>Net Worth Projection</h3>
-              <div className="chart-container" style={{ height: 340 }}>
-                <ResponsiveContainer width="100%" height="100%">
+              <MeasuredChart height={340}>
+                {!chartsReady ? null : (
+                <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={340}>
                   <ComposedChart data={results}>
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
                     <XAxis dataKey="age" stroke="var(--text-muted)" tick={{ fill: 'var(--text-muted)', fontSize: 11 }} />
@@ -124,15 +122,17 @@ export default function Simulator() {
                     <Line type="monotone" dataKey="real_estate_equity" name="RE Equity" stroke="#f59e0b" strokeWidth={1.5} dot={false} />
                   </ComposedChart>
                 </ResponsiveContainer>
-              </div>
+                )}
+              </MeasuredChart>
             </div>
           )}
 
           {tab === 'income/expenses' && (
             <div className="card">
               <h3 style={{ marginBottom: 12, fontSize: 13, fontWeight: 600 }}>Annual Income vs Expenses vs Taxes</h3>
-              <div className="chart-container" style={{ height: 340 }}>
-                <ResponsiveContainer width="100%" height="100%">
+              <MeasuredChart height={340}>
+                {!chartsReady ? null : (
+                <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={340}>
                   <ComposedChart data={results}>
                     <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
                     <XAxis dataKey="age" stroke="var(--text-muted)" tick={{ fill: 'var(--text-muted)', fontSize: 11 }} />
@@ -146,7 +146,8 @@ export default function Simulator() {
                     <Line type="monotone" dataKey="cash_surplus_deficit" name="Cash Surplus/Deficit" stroke="#a78bfa" strokeWidth={2} dot={false} />
                   </ComposedChart>
                 </ResponsiveContainer>
-              </div>
+                )}
+              </MeasuredChart>
             </div>
           )}
 
@@ -182,40 +183,7 @@ export default function Simulator() {
             </div>
           )}
 
-          {tab === 'monte carlo' && (
-            <div className="card">
-              {!mcResults
-                ? <div className="empty-state"><p>Click "🎲 Monte Carlo" above to run {nSim.toLocaleString()} simulations.</p></div>
-                : (
-                  <>
-                    <div style={{ marginBottom: 12 }}>
-                      <span style={{ fontSize: 13 }}>Success Rate (never runs out): </span>
-                      <strong style={{ color: mcResults.success_rate >= 90 ? 'var(--green)' : mcResults.success_rate >= 70 ? 'var(--yellow)' : 'var(--red)', fontSize: 16 }}>
-                        {mcResults.success_rate.toFixed(1)}%
-                      </strong>
-                      <span style={{ fontSize: 12, color: 'var(--text-muted)', marginLeft: 8 }}>({nSim.toLocaleString()} simulations)</span>
-                    </div>
-                    <h3 style={{ marginBottom: 12, fontSize: 13, fontWeight: 600 }}>Portfolio Percentile Fan Chart</h3>
-                    <div className="chart-container" style={{ height: 340 }}>
-                      <ResponsiveContainer width="100%" height="100%">
-                        <ComposedChart data={mcChartData}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                          <XAxis dataKey="age" stroke="var(--text-muted)" tick={{ fill: 'var(--text-muted)', fontSize: 11 }} />
-                          <YAxis stroke="var(--text-muted)" tick={{ fill: 'var(--text-muted)', fontSize: 11 }} tickFormatter={v => `$${(v/1000000).toFixed(1)}M`} />
-                          <Tooltip formatter={(v, n) => [formatCurrency(v), n]} contentStyle={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 6 }} />
-                          <Legend wrapperStyle={{ fontSize: 12 }} />
-                          <Area type="monotone" dataKey="p90" name="90th pct" stroke="#22c55e" fill="rgba(34,197,94,0.06)" strokeWidth={1.5} dot={false} />
-                          <Area type="monotone" dataKey="p75" name="75th pct" stroke="#4f8ef7" fill="rgba(79,142,247,0.08)" strokeWidth={1.5} dot={false} />
-                          <Line type="monotone" dataKey="p50" name="Median" stroke="#f59e0b" strokeWidth={2.5} dot={false} />
-                          <Area type="monotone" dataKey="p25" name="25th pct" stroke="#a78bfa" fill="rgba(167,139,250,0.06)" strokeWidth={1.5} dot={false} />
-                          <Area type="monotone" dataKey="p10" name="10th pct" stroke="#ef4444" fill="rgba(239,68,68,0.06)" strokeWidth={1.5} dot={false} />
-                        </ComposedChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </>
-                )}
-            </div>
-          )}
+
         </>
       )}
 

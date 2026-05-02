@@ -28,6 +28,23 @@ class CompareRequest(BaseModel):
     scenario_ids: list[str]
 
 
+@router.post("/compare")
+def compare_scenarios(
+    body: CompareRequest,
+    conn: duckdb.DuckDBPyConnection = Depends(get_db),
+):
+    """Run deterministic projection for multiple scenarios and return side-by-side results."""
+    comparison = {}
+    for sid in body.scenario_ids:
+        actual_sid = None if sid == "base" else sid
+        try:
+            results = run_projection(conn, scenario_id=actual_sid)
+            comparison[sid] = results
+        except ValueError as exc:
+            comparison[sid] = {"error": str(exc)}
+    return {"scenarios": comparison}
+
+
 def _load_base_data(conn):
     from ..engine.projection import (
         _load_profile, _load_accounts, _load_income_sources,
@@ -149,23 +166,6 @@ def run_monte_carlo_sim(
     )
 
     return {"simulation_id": result_id, "scenario_id": scenario_id, **result_dict}
-
-
-@router.post("/compare")
-def compare_scenarios(
-    body: CompareRequest,
-    conn: duckdb.DuckDBPyConnection = Depends(get_db),
-):
-    """Run deterministic projection for multiple scenarios and return side-by-side results."""
-    comparison = {}
-    for sid in body.scenario_ids:
-        actual_sid = None if sid == "base" else sid
-        try:
-            results = run_projection(conn, scenario_id=actual_sid)
-            comparison[sid] = results
-        except ValueError as exc:
-            comparison[sid] = {"error": str(exc)}
-    return {"scenarios": comparison}
 
 
 @router.get("/{scenario_id}/results")

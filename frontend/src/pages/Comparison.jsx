@@ -1,9 +1,27 @@
 import { useState, useEffect } from 'react'
 import { getScenarios, compareScenarios } from '../api'
-import { formatCurrency } from '../components/shared'
+import { formatCurrency, MeasuredChart } from '../components/shared'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 
 const COLORS = ['#4f8ef7','#22c55e','#f59e0b','#ef4444','#a78bfa','#06b6d4']
+
+const normalizeProjection = projection =>
+  (projection ?? []).map(row => ({
+    ...row,
+    income: typeof row.income === 'number' ? row.income : row.income?.total ?? 0,
+    expenses: typeof row.expenses === 'number' ? row.expenses : row.expenses?.total ?? 0,
+    taxes: typeof row.taxes === 'number' ? row.taxes : row.taxes?.total ?? 0,
+    withdrawals: typeof row.withdrawals === 'number' ? row.withdrawals : row.withdrawals?.total ?? 0,
+  }))
+
+const normalizeComparisonResults = payload => {
+  const scenarios = payload?.scenarios ?? payload ?? {}
+  return Object.fromEntries(
+    Object.entries(scenarios)
+      .filter(([, projection]) => Array.isArray(projection))
+      .map(([scenarioId, projection]) => [scenarioId, normalizeProjection(projection)])
+  )
+}
 
 export default function Comparison() {
   const [scenarios, setScenarios] = useState([])
@@ -12,6 +30,7 @@ export default function Comparison() {
   const [running, setRunning] = useState(false)
   const [error, setError] = useState('')
   const [metric, setMetric] = useState('total_net_worth')
+  const scenarioOptions = scenarios.length > 0 ? scenarios : [{ id: 'base', name: 'Base Plan', is_base: true }]
 
   useEffect(() => { getScenarios().then(setScenarios) }, [])
 
@@ -22,7 +41,11 @@ export default function Comparison() {
     setRunning(true); setError('')
     try {
       const res = await compareScenarios(selected)
-      setResults(res)
+      const normalized = normalizeComparisonResults(res)
+      setResults(normalized)
+      if (Object.keys(normalized).length === 0) {
+        setError('No comparable scenario results were returned.')
+      }
     } catch (err) {
       setError(err.response?.data?.detail || 'Comparison failed')
     }
@@ -74,8 +97,8 @@ export default function Comparison() {
       <div className="card" style={{ marginBottom: 16 }}>
         <h3 style={{ marginBottom: 12, fontSize: 13, fontWeight: 600 }}>Select Scenarios (pick 2+)</h3>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {scenarios.length === 0 && <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>No scenarios found. Create some in the Scenarios page.</span>}
-          {scenarios.map(s => (
+          {scenarioOptions.length < 2 && <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>Create at least one additional scenario to compare against the base plan.</span>}
+          {scenarioOptions.map(s => (
             <div key={s.id} onClick={() => toggle(s.id)}
               style={{
                 padding: '6px 14px', borderRadius: 20, cursor: 'pointer', fontSize: 13, fontWeight: 500,
@@ -99,8 +122,8 @@ export default function Comparison() {
           </div>
 
           <div className="card" style={{ marginBottom: 16 }}>
-            <div className="chart-container" style={{ height: 340 }}>
-              <ResponsiveContainer width="100%" height="100%">
+            <MeasuredChart height={340}>
+              <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={340}>
                 <LineChart data={chartData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
                   <XAxis dataKey="age" stroke="var(--text-muted)" tick={{ fill: 'var(--text-muted)', fontSize: 11 }} />
@@ -112,7 +135,7 @@ export default function Comparison() {
                   ))}
                 </LineChart>
               </ResponsiveContainer>
-            </div>
+            </MeasuredChart>
           </div>
 
           {/* Summary table */}
@@ -131,7 +154,7 @@ export default function Comparison() {
               </thead>
               <tbody>
                 {Object.entries(results).map(([sid, proj]) => {
-                  const sc = scenarios.find(s => String(s.id) === String(sid))
+                  const sc = scenarioOptions.find(s => String(s.id) === String(sid))
                   return (
                     <tr key={sid}>
                       <td style={{ fontWeight: 500 }}>{sc?.name ?? sid}</td>

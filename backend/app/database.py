@@ -246,6 +246,7 @@ def _create_schema(conn: duckdb.DuckDBPyConnection) -> None:
 
     # Migrations — add columns that may not exist in older databases
     _migrate(conn)
+    _ensure_base_scenario(conn)
 
     conn.commit()
 
@@ -277,6 +278,21 @@ def _migrate(conn: duckdb.DuckDBPyConnection) -> None:
     if "is_primary_residence" not in prop_cols:
         conn.execute("ALTER TABLE rental_properties ADD COLUMN is_primary_residence BOOLEAN DEFAULT FALSE")
         conn.execute("UPDATE rental_properties SET is_primary_residence = FALSE WHERE is_primary_residence IS NULL")
+
+
+def _ensure_base_scenario(conn: duckdb.DuckDBPyConnection) -> None:
+    """Ensure the implicit base plan exists as a first-class scenario row."""
+    conn.execute("SELECT id, is_base FROM scenarios WHERE id = 'base'")
+    row = conn.fetchone()
+    if row is None:
+        conn.execute(
+            """INSERT INTO scenarios (id, name, description, is_base, base_scenario_id)
+               VALUES ('base', 'Base Plan', 'Default plan with no overrides.', TRUE, NULL)"""
+        )
+        return
+
+    if not row[1]:
+        conn.execute("UPDATE scenarios SET is_base = TRUE WHERE id = 'base'")
 
 
 def rows_to_dicts(conn: duckdb.DuckDBPyConnection) -> list[dict]:

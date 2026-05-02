@@ -33,6 +33,10 @@
   --inset-md:     inset 0 2px 4px rgba(0,0,0,0.08);
 }
 
+html, body, #root {
+  height: 100%;
+}
+
 html, body {
   height: 100%; background: var(--bg); color: var(--text);
   font-family: var(--font); font-size: 13px; line-height: 1.5;
@@ -79,7 +83,7 @@ tr:hover td { background: var(--surface2); }
 .card {
   background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--radius); padding: 20px;
-  box-shadow: var(--card-shadow);
+  box-shadow: var(--card-shadow); min-width: 0;
 }
 
 .btn-primary {
@@ -162,4 +166,4 @@ tr:hover td { background: var(--surface2); }
 .tab.active { color: var(--accent-hi); border-bottom-color: var(--accent); }
 .tab:hover  { color: var(--text); }
 
-.chart-container { width: 100%; overflow: hidden; }
+.chart-container { width: 100%; min-width: 0; min-height: 1px; overflow: hidden; }
