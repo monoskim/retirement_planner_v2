@@ -229,6 +229,19 @@ def calculate_rental_year(
         else:
             other += amt
 
+    # For primary residences, keep recurring housing costs visible even after
+    # mortgage payoff. Use mortgage table defaults when explicit expense rows
+    # are not present, avoiding double counting.
+    if is_primary and mortgage_data:
+        if prop_tax <= 0:
+            base_prop_tax = mortgage_data.get("property_tax", 0.0)
+            if base_prop_tax > 0:
+                prop_tax = base_prop_tax * ((1 + inflation_rate) ** years_owned)
+        if ins <= 0:
+            base_insurance = mortgage_data.get("insurance", 0.0)
+            if base_insurance > 0:
+                ins = base_insurance * ((1 + inflation_rate) ** years_owned)
+
     # ---- Mortgage ----
     mortgage_interest = 0.0
     mortgage_balance = 0.0
