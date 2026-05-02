@@ -45,7 +45,6 @@ function AppShell() {
                   to={item.path}
                   className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}
                 >
-                  <span className="nav-glyph">{item.glyph}</span>
                   <span className="nav-label">{item.label}</span>
                 </NavLink>
               </li>
