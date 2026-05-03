@@ -48,7 +48,7 @@ def compare_scenarios(
 def _load_base_data(conn):
     from ..engine.projection import (
         _load_profile, _load_accounts, _load_income_sources,
-        _load_expenses, _load_ss,
+        _load_expenses, _load_ss, _load_rental_data,
     )
     return (
         _load_profile(conn),
@@ -56,6 +56,7 @@ def _load_base_data(conn):
         _load_income_sources(conn),
         _load_expenses(conn),
         _load_ss(conn),
+        _load_rental_data(conn),
     )
 
 
@@ -96,7 +97,7 @@ def run_monte_carlo_sim(
     """Run Monte Carlo simulation for a scenario."""
     sid = None if scenario_id == "base" else scenario_id
 
-    profile, accounts, income_sources, expenses, ss = _load_base_data(conn)
+    profile, accounts, income_sources, expenses, ss, rental_data = _load_base_data(conn)
     if not profile:
         raise HTTPException(status_code=400, detail="No profile found. Please set up your profile first.")
 
@@ -117,12 +118,12 @@ def run_monte_carlo_sim(
             "income_sources": copy.deepcopy(income_sources),
             "expenses": copy.deepcopy(expenses),
             "ss": copy.deepcopy(ss),
-            "rental_data": [],
+            "rental_data": copy.deepcopy(rental_data),
         }
         _apply_overrides(data, overrides)
-        profile, accounts, income_sources, expenses, ss = (
+        profile, accounts, income_sources, expenses, ss, rental_data = (
             data["profile"], data["accounts"], data["income_sources"],
-            data["expenses"], data["ss"],
+            data["expenses"], data["ss"], data["rental_data"],
         )
 
     mc_result = run_monte_carlo(
@@ -131,6 +132,7 @@ def run_monte_carlo_sim(
         income_sources=income_sources,
         expenses=expenses,
         ss=ss,
+        rental_data=rental_data,
         n_simulations=params.n_simulations,
         return_mean_override=params.return_mean_override,
         return_stddev_override=params.return_stddev_override,

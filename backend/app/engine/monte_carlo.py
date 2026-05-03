@@ -15,6 +15,7 @@ from .tax import calculate_total_tax
 from .rmd import calculate_all_rmds
 from .social_security import monthly_benefit_at_age
 from .withdrawal import make_withdrawals
+from .rental_property import calculate_rental_year
 
 
 @dataclass
@@ -46,6 +47,7 @@ def run_monte_carlo(
     income_sources: list[dict],
     expenses: list[dict],
     ss: dict | None,
+    rental_data: list[dict] | None = None,
     n_simulations: int = 3000,
     return_mean_override: float | None = None,   # % (e.g. 7.0)
     return_stddev_override: float | None = None,  # % (e.g. 15.0)
@@ -55,7 +57,8 @@ def run_monte_carlo(
     """
     Vectorized Monte Carlo using numpy.
     Each simulation runs independently with randomized annual returns and inflation.
-    Rental properties are excluded for simplicity (included in base projection).
+    Rental/property cashflows are modeled using the shared rental engine to avoid
+    deterministic-vs-MC drift in housing expense treatment.
     """
     birth_date = profile["birth_date"]
     if isinstance(birth_date, str):
@@ -70,6 +73,7 @@ def run_monte_carlo(
 
     n_years = end_age - current_age + 1
     N = n_simulations
+    rental_state = copy.deepcopy(rental_data or [])
 
     # ---- Generate random return and inflation sequences (N x n_years) ----
     rng = np.random.default_rng()
@@ -118,6 +122,7 @@ def run_monte_carlo(
 
     for year_idx in range(n_years):
         age = current_age + year_idx
+        year = current_year + year_idx
         years_elapsed = year_idx
         # Treat retirement age as the last working year for contribution logic.
         is_working = age <= retirement_age
@@ -158,6 +163,43 @@ def run_monte_carlo(
         if age >= ss_start_age and ss_annual > 0:
             total_income += ss_annual
 
+        # ---- Rental properties / primary residence housing ----
+        total_rental_taxable = 0.0
+        primary_residence_outflow = 0.0
+        if rental_state:
+            avg_inflation_for_year = float(np.mean(infl))
+            # PAL rules need an AGI estimate; use median simulation income as scalar proxy.
+            agi_estimate = float(np.median(total_income))
+
+            for rd in rental_state:
+                prop = rd.get("property") or {}
+                purchase_date = prop.get("purchase_date")
+                if isinstance(purchase_date, str):
+                    purchase_date = date.fromisoformat(purchase_date)
+                years_owned = year - purchase_date.year if purchase_date else 0
+
+                planned_sale_year = prop.get("planned_sale_year")
+                if planned_sale_year and year >= planned_sale_year:
+                    continue
+
+                result = calculate_rental_year(
+                    property_data=prop,
+                    mortgage_data=rd.get("mortgage"),
+                    income_data=rd.get("income"),
+                    expense_rows=rd.get("expenses", []),
+                    calendar_year=year,
+                    years_owned=years_owned,
+                    inflation_rate=avg_inflation_for_year,
+                    agi_estimate=agi_estimate,
+                )
+
+                total_rental_taxable += result.net_taxable_income
+                if prop.get("is_primary_residence", False) and result.cash_flow < 0:
+                    primary_residence_outflow += abs(result.cash_flow)
+
+        if total_rental_taxable:
+            total_income += total_rental_taxable
+
         # ---- Expenses ----
         total_expenses = np.zeros(N)
         for exp in expenses:
@@ -170,6 +212,9 @@ def run_monte_carlo(
                 else:
                     amount_v = amount
                 total_expenses += amount_v
+
+        if primary_residence_outflow > 0:
+            total_expenses += primary_residence_outflow
 
         # ---- Simplified RMDs (scalar: use median balance) ----
         rmd_total = np.zeros(N)

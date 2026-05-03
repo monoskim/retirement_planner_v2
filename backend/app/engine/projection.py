@@ -305,6 +305,8 @@ def run_projection(
         # ---- 5. RENTAL PROPERTIES ----
         rental_results: dict[str, dict] = {}
         total_rental_taxable = 0.0
+        total_rental_cash_inflow = 0.0
+        total_rental_cash_outflow = 0.0
         primary_residence_outflow = 0.0
 
         # First pass: estimate AGI for PAL rule (pre-rental)
@@ -360,6 +362,13 @@ def run_projection(
             # Primary residence mortgage + operating expenses are personal cash outflows
             if is_primary and result.cash_flow < 0:
                 primary_residence_outflow += abs(result.cash_flow)
+            elif not is_primary:
+                # Non-primary rentals should impact household cash flow by their
+                # actual net cash flow, separate from taxable rental income.
+                if result.cash_flow >= 0:
+                    total_rental_cash_inflow += result.cash_flow
+                else:
+                    total_rental_cash_outflow += abs(result.cash_flow)
 
         # ---- 6. EXPENSES ----
         expense_breakdown: dict[str, float] = {}
@@ -387,6 +396,11 @@ def run_projection(
             expense_breakdown["primary_residence_housing"] = round(primary_residence_outflow, 2)
             total_expenses += primary_residence_outflow
 
+        # Include non-primary rental cash deficits as expense-side cash outflow.
+        if total_rental_cash_outflow > 0:
+            expense_breakdown["rental_property_cashflow_deficit"] = round(total_rental_cash_outflow, 2)
+            total_expenses += total_rental_cash_outflow
+
         # ---- 7. RMDs ----
         rmd_map = calculate_all_rmds(accounts, balances, age)
         total_rmd = sum(rmd_map.values())
@@ -398,7 +412,8 @@ def run_projection(
 
         # ---- 8. TAX CALCULATION (2-pass) ----
         # Pass 1: estimate tax without withdrawal income
-        total_non_withdrawal_income = sum(income_breakdown.values()) + total_rental_taxable
+        base_income_cash = sum(income_breakdown.values())
+        total_non_withdrawal_income = base_income_cash + total_rental_taxable
         # RMDs are withdrawals from tax-deferred → count as ordinary income
         ordinary_income_p1 = total_non_withdrawal_income + total_rmd
 
@@ -412,68 +427,93 @@ def run_projection(
         )
 
         # Determine shortfall
-        cash_available = total_non_withdrawal_income + total_rmd
+        cash_available = base_income_cash + total_rental_cash_inflow + total_rmd
         cash_needed_p1 = total_expenses + tax_p1.total_tax
         shortfall_p1 = max(0.0, cash_needed_p1 - cash_available)
 
-        # Pass 2: make withdrawals, recalculate tax
+        # Pass 2: withdrawals can create more tax, so true-up iteratively.
         withdrawal_result = WithdrawalResult()
-        if shortfall_p1 > 0:
-            withdrawal_result = make_withdrawals(
-                accounts=accounts,
-                balances=balances,
-                net_amount_needed=shortfall_p1,
-                age=float(age),
-                marginal_tax_rate=tax_p1.marginal_rate,
-            )
-
-        for acc_id, amt in withdrawal_result.per_account.items():
-            flow = account_year_flows.get(acc_id)
-            if flow is not None:
-                flow["withdrawal_outflow"] += amt
-
-        # Additional ordinary income from tax-deferred withdrawals
-        additional_ordinary = withdrawal_result.tax_deferred_withdrawn
-
-        # Realized long-term gains from taxable account withdrawals.
-        # We model each sale as pro-rata principal vs gain based on current
-        # unrealized gain in the account at the time of withdrawal.
+        additional_ordinary = 0.0
         additional_long_term_gains = 0.0
         account_type_by_id = {acc["id"]: acc.get("account_type") for acc in accounts}
-        for acc_id, amt in withdrawal_result.per_account.items():
-            if account_type_by_id.get(acc_id) != "taxable" or amt <= 0:
-                continue
+        tax_final = tax_p1
+        total_income = base_income_cash + total_rental_cash_inflow + total_rmd
+        cash_surplus_deficit = total_income - total_expenses - tax_final.total_tax
 
-            post_withdrawal_balance = balances.get(acc_id, 0.0)
-            pre_withdrawal_balance = post_withdrawal_balance + amt
-            basis_before = taxable_basis.get(acc_id, 0.0)
+        remaining_shortfall = max(0.0, -cash_surplus_deficit)
+        tax_rate_hint = tax_p1.marginal_rate
+        max_true_up_iters = 6
+        true_up_iter = 0
 
-            if pre_withdrawal_balance <= 0:
-                continue
+        while remaining_shortfall > 0.01 and true_up_iter < max_true_up_iters:
+            step = make_withdrawals(
+                accounts=accounts,
+                balances=balances,
+                net_amount_needed=remaining_shortfall,
+                age=float(age),
+                marginal_tax_rate=tax_rate_hint,
+            )
 
-            unrealized_gain_before = max(0.0, pre_withdrawal_balance - basis_before)
-            gain_ratio = unrealized_gain_before / pre_withdrawal_balance
-            realized_gain = amt * gain_ratio
-            additional_long_term_gains += realized_gain
+            # No additional funds available.
+            if step.total_withdrawn <= 0:
+                break
 
-            principal_withdrawn = amt - realized_gain
-            taxable_basis[acc_id] = max(0.0, basis_before - principal_withdrawn)
+            withdrawal_result.taxable_withdrawn += step.taxable_withdrawn
+            withdrawal_result.tax_deferred_withdrawn += step.tax_deferred_withdrawn
+            withdrawal_result.roth_withdrawn += step.roth_withdrawn
+            withdrawal_result.hsa_withdrawn += step.hsa_withdrawn
+            withdrawal_result.penalty_paid += step.penalty_paid
+            withdrawal_result.total_withdrawn += step.total_withdrawn
 
-        tax_final = calculate_total_tax(
-            ordinary_income=ordinary_income_p1 + additional_ordinary,
-            long_term_gains=additional_long_term_gains,
-            ss_benefits=ss_annual,
-            filing_status=filing_status,
-            year=year,
-            age=age,
-        )
+            for acc_id, amt in step.per_account.items():
+                withdrawal_result.per_account[acc_id] = withdrawal_result.per_account.get(acc_id, 0.0) + amt
+                flow = account_year_flows.get(acc_id)
+                if flow is not None:
+                    flow["withdrawal_outflow"] += amt
+
+                if account_type_by_id.get(acc_id) != "taxable" or amt <= 0:
+                    continue
+
+                # Realized gains are pro-rata based on pre-withdrawal gain ratio.
+                post_withdrawal_balance = balances.get(acc_id, 0.0)
+                pre_withdrawal_balance = post_withdrawal_balance + amt
+                basis_before = taxable_basis.get(acc_id, 0.0)
+
+                if pre_withdrawal_balance <= 0:
+                    continue
+
+                unrealized_gain_before = max(0.0, pre_withdrawal_balance - basis_before)
+                gain_ratio = unrealized_gain_before / pre_withdrawal_balance
+                realized_gain = amt * gain_ratio
+                additional_long_term_gains += realized_gain
+
+                principal_withdrawn = amt - realized_gain
+                taxable_basis[acc_id] = max(0.0, basis_before - principal_withdrawn)
+
+            additional_ordinary += step.tax_deferred_withdrawn
+
+            tax_final = calculate_total_tax(
+                ordinary_income=ordinary_income_p1 + additional_ordinary,
+                long_term_gains=additional_long_term_gains,
+                ss_benefits=ss_annual,
+                filing_status=filing_status,
+                year=year,
+                age=age,
+            )
+
+            cash_surplus_deficit = (
+                total_income + withdrawal_result.total_withdrawn - total_expenses - tax_final.total_tax
+            )
+            remaining_shortfall = max(0.0, -cash_surplus_deficit)
+            tax_rate_hint = tax_final.marginal_rate
+            true_up_iter += 1
 
         # ---- 9. NET WORTH SNAPSHOT ----
         liquid_portfolio = sum(balances.values())
         real_estate_equity = sum(r["equity"] for r in rental_results.values())
         total_net_worth = liquid_portfolio + real_estate_equity
 
-        total_income = sum(income_breakdown.values()) + total_rental_taxable + total_rmd
+        total_income = base_income_cash + total_rental_cash_inflow + total_rmd
         cash_surplus_deficit = total_income + withdrawal_result.total_withdrawn - total_expenses - tax_final.total_tax
 
         for acc in accounts:
@@ -550,9 +590,9 @@ def run_projection(
             },
             "income": {
                 **{k: round(v, 2) for k, v in income_breakdown.items()},
-                **({"rental_income": round(total_rental_taxable, 2)} if total_rental_taxable else {}),
+                **({"rental_income": round(total_rental_cash_inflow, 2)} if total_rental_cash_inflow else {}),
                 "rmd_withdrawals": round(total_rmd, 2),
-                "total": round(sum(income_breakdown.values()) + total_rmd + total_rental_taxable, 2),
+                "total": round(total_income, 2),
             },
             "rental_income_taxable": round(total_rental_taxable, 2),
             "expenses": {

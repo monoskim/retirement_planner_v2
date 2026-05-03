@@ -1,5 +1,10 @@
 import { useState, useEffect } from 'react'
-import { getExpenses, createExpense, updateExpense, deleteExpense } from '../api'
+import {
+  getExpenses,
+  createExpense,
+  updateExpense,
+  deleteExpense,
+} from '../api'
 import { FormField, Modal, EmptyState, formatCurrency } from '../components/shared'
 
 const CATEGORIES = ['housing','travel','medical','food','insurance','taxes','transportation','entertainment','other']
@@ -29,6 +34,7 @@ export default function Expenses() {
       start_age: form.start_age === '' ? null : +form.start_age,
       end_age: form.end_age === '' ? null : +form.end_age,
     }
+
     try {
       if (modal === 'add') await createExpense(payload)
       else await updateExpense(modal.editing.id, payload)
@@ -57,6 +63,13 @@ export default function Expenses() {
           <p className="page-subtitle">Total: {formatCurrency(total)}/yr</p>
         </div>
         <button className="btn-primary" onClick={openAdd}>+ Add Expense</button>
+      </div>
+
+      <div className="card" style={{ marginBottom: 16, borderLeft: '4px solid var(--accent)' }}>
+        <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+          Living expenses only. Enter mortgage payments in Property &gt; Mortgage and
+          property tax, homeowner&apos;s insurance, HOA, and maintenance in Property costs.
+        </div>
       </div>
 
       {Object.keys(byCategory).length > 0 && (
