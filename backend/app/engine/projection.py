@@ -221,6 +221,7 @@ def run_projection(
             for acc in accounts
         }
         total_employee_contributions = 0.0
+        per_account_contributions: dict[str, float] = {}
 
         # ---- 1. CONTRIBUTIONS (pre-retirement) ----
         if is_working:
@@ -266,6 +267,9 @@ def run_projection(
                         flow["employer_match"] += match
                         flow["total_contributions"] += contrib + match
                     total_employee_contributions += contrib
+                    if contrib > 0:
+                        acc_label = acc.get("name", acc["id"])
+                        per_account_contributions[acc_label] = per_account_contributions.get(acc_label, 0.0) + contrib
 
         # ---- 2. INVESTMENT RETURNS ----
         for acc in accounts:
@@ -597,6 +601,10 @@ def run_projection(
             "rental_income_taxable": round(total_rental_taxable, 2),
             "expenses": {
                 **{k: round(v, 2) for k, v in expense_breakdown.items()},
+                **({"account_contributions": {
+                    **{name: round(amt, 2) for name, amt in per_account_contributions.items()},
+                    "total": round(total_employee_contributions, 2),
+                }} if per_account_contributions else {}),
                 "total": round(total_expenses, 2),
             },
             "primary_residence_outflow": round(primary_residence_outflow, 2),

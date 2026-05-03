@@ -24,6 +24,56 @@ def _fmt(row: dict) -> dict:
     return row
 
 
+def _insert_rows(conn: duckdb.DuckDBPyConnection, table: str, rows: list[dict]) -> None:
+    if not rows:
+        return
+
+    columns = list(rows[0].keys())
+    placeholders = ", ".join(["?"] * len(columns))
+    column_sql = ", ".join(columns)
+    values = [[row[column] for column in columns] for row in rows]
+    conn.executemany(
+        f"INSERT INTO {table} ({column_sql}) VALUES ({placeholders})",
+        values,
+    )
+
+
+def _update_scenario_with_fk_workaround(
+    conn: duckdb.DuckDBPyConnection,
+    scenario_id: str,
+    body: ScenarioUpdate,
+) -> None:
+    conn.execute("SELECT * FROM scenario_overrides WHERE scenario_id = ? ORDER BY created_at", [scenario_id])
+    overrides = rows_to_dicts(conn)
+
+    conn.execute("SELECT * FROM simulation_results WHERE scenario_id = ? ORDER BY created_at", [scenario_id])
+    simulation_results = rows_to_dicts(conn)
+
+    conn.execute("SELECT id FROM scenarios WHERE base_scenario_id = ? ORDER BY created_at", [scenario_id])
+    base_dependents = rows_to_dicts(conn)
+
+    if overrides:
+        conn.execute("DELETE FROM scenario_overrides WHERE scenario_id = ?", [scenario_id])
+    if simulation_results:
+        conn.execute("DELETE FROM simulation_results WHERE scenario_id = ?", [scenario_id])
+    if base_dependents:
+        conn.execute("UPDATE scenarios SET base_scenario_id = NULL WHERE base_scenario_id = ?", [scenario_id])
+
+    conn.execute(
+        "UPDATE scenarios SET name=?, description=?, is_base=?, base_scenario_id=? WHERE id=?",
+        [body.name, body.description, body.is_base, body.base_scenario_id, scenario_id],
+    )
+
+    for dependent in base_dependents:
+        conn.execute(
+            "UPDATE scenarios SET base_scenario_id = ? WHERE id = ?",
+            [scenario_id, dependent["id"]],
+        )
+
+    _insert_rows(conn, "scenario_overrides", overrides)
+    _insert_rows(conn, "simulation_results", simulation_results)
+
+
 @router.get("", response_model=list[ScenarioOut])
 def list_scenarios(conn: duckdb.DuckDBPyConnection = Depends(get_db)):
     conn.execute("SELECT * FROM scenarios ORDER BY created_at")
@@ -59,10 +109,16 @@ def update_scenario(
     conn.execute("SELECT id FROM scenarios WHERE id = ?", [scenario_id])
     if not conn.fetchone():
         raise HTTPException(status_code=404, detail="Scenario not found")
-    conn.execute(
-        "UPDATE scenarios SET name=?, description=?, is_base=?, base_scenario_id=? WHERE id=?",
-        [body.name, body.description, body.is_base, body.base_scenario_id, scenario_id],
-    )
+    try:
+        conn.execute(
+            "UPDATE scenarios SET name=?, description=?, is_base=?, base_scenario_id=? WHERE id=?",
+            [body.name, body.description, body.is_base, body.base_scenario_id, scenario_id],
+        )
+    except duckdb.ConstraintException as exc:
+        if "foreign key constraint" not in str(exc).lower():
+            raise
+        _update_scenario_with_fk_workaround(conn, scenario_id, body)
+
     conn.execute("SELECT * FROM scenarios WHERE id = ?", [scenario_id])
     return _fmt(rows_to_dicts(conn)[0])
 

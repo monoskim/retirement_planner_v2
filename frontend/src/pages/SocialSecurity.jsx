@@ -1,5 +1,11 @@
 import { useState, useEffect } from 'react'
-import { getSocialSecurity, saveSocialSecurity, optimizeSocialSecurity } from '../api'
+import {
+  getSocialSecurity,
+  saveSocialSecurity,
+  optimizeSocialSecurity,
+  getIncomeSources,
+  getProfile,
+} from '../api'
 import { FormField, formatCurrency } from '../components/shared'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 
@@ -10,12 +16,45 @@ const DEFAULT = {
   spouse_fra_monthly_benefit: 0, spouse_fra_age: 67, spouse_claiming_age: null, notes: '',
 }
 
+const SS_ESTIMATE = {
+  replacementRate: 0.4,
+  minMonthly: 600,
+  maxMonthly: 4300,
+}
+
+function getFraFromBirthYear(birthYear) {
+  if (!birthYear || Number.isNaN(birthYear)) return 67
+  if (birthYear <= 1937) return 65
+  if (birthYear <= 1959) return 66
+  return 67
+}
+
+function estimateFraBenefitFromIncome(incomeSources) {
+  const salaryAnnual = incomeSources
+    .filter(s => s.income_type === 'salary' && Number(s.annual_amount) > 0)
+    .reduce((sum, s) => sum + Number(s.annual_amount), 0)
+
+  if (salaryAnnual <= 0) {
+    return { monthly: 0, salaryAnnual: 0 }
+  }
+
+  const estimatedMonthly = Math.round(
+    Math.min(
+      SS_ESTIMATE.maxMonthly,
+      Math.max(SS_ESTIMATE.minMonthly, (salaryAnnual * SS_ESTIMATE.replacementRate) / 12),
+    ),
+  )
+
+  return { monthly: estimatedMonthly, salaryAnnual }
+}
+
 export default function SocialSecurity() {
   const [form, setForm] = useState(DEFAULT)
   const [analysis, setAnalysis] = useState(null)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
   const [analyzing, setAnalyzing] = useState(false)
+  const [estimateInfo, setEstimateInfo] = useState('')
 
   useEffect(() => {
     getSocialSecurity().then(d => { if (d) setForm({ ...DEFAULT, ...d }) }).catch(() => {})
@@ -27,6 +66,31 @@ export default function SocialSecurity() {
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
+  const estimateBenefit = async () => {
+    setError('')
+    setEstimateInfo('')
+    try {
+      const [incomeSources, profile] = await Promise.all([
+        getIncomeSources(),
+        getProfile().catch(() => null),
+      ])
+      const estimate = estimateFraBenefitFromIncome(incomeSources || [])
+
+      if (estimate.monthly <= 0) {
+        setError('No salary income found to estimate from. Add a salary source in Income first, or enter SSA estimate manually.')
+        return
+      }
+
+      const birthYear = profile?.birth_date ? new Date(profile.birth_date).getFullYear() : null
+      const fraAge = getFraFromBirthYear(birthYear)
+      set('fra_monthly_benefit', estimate.monthly)
+      set('fra_age', fraAge)
+      setEstimateInfo(`Estimated from salary income (${formatCurrency(estimate.salaryAnnual)}/yr). Use SSA statement for a more accurate value.`)
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Unable to estimate benefit right now.')
+    }
+  }
+
   const submit = async e => {
     e.preventDefault(); setError('')
     try {
@@ -37,8 +101,16 @@ export default function SocialSecurity() {
   }
 
   const analyze = async () => {
+    setError('')
+    if (!form.fra_monthly_benefit || form.fra_monthly_benefit <= 0) {
+      setError('Set Monthly Benefit at FRA first, or click "Estimate FRA Benefit".')
+      return
+    }
+
     setAnalyzing(true)
     try {
+      // Keep backend analysis in sync with current form values.
+      await saveSocialSecurity(form)
       const res = await optimizeSocialSecurity('base')
       setAnalysis(res)
     } catch (err) {
@@ -60,11 +132,16 @@ export default function SocialSecurity() {
       <div className="page-header">
         <div>
           <h1 className="page-title">Social Security</h1>
-          <p className="page-subtitle">Enter your estimated benefit from ssa.gov</p>
+          <p className="page-subtitle">Use SSA statement if available, or estimate from your salary with one click</p>
         </div>
-        <button className="btn-secondary" onClick={analyze} disabled={analyzing}>
-          {analyzing ? 'Analyzing…' : '📊 Analyze Claiming Ages'}
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn-secondary" onClick={estimateBenefit}>
+            Estimate FRA Benefit
+          </button>
+          <button className="btn-secondary" onClick={analyze} disabled={analyzing}>
+            {analyzing ? 'Analyzing…' : '📊 Analyze Claiming Ages'}
+          </button>
+        </div>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: analysis ? '380px 1fr' : '1fr', gap: 16 }}>
@@ -86,6 +163,8 @@ export default function SocialSecurity() {
                 </select>
               </FormField>
             </div>
+
+            {estimateInfo && <p style={{ marginTop: 8, color: 'var(--text-muted)', fontSize: 12 }}>{estimateInfo}</p>}
 
             <h3 style={{ margin: '16px 0 12px', fontSize: 14, fontWeight: 600 }}>Spouse Benefits (optional)</h3>
             <div className="form-grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
