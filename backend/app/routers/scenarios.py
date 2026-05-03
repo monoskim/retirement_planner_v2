@@ -72,6 +72,12 @@ def delete_scenario(scenario_id: str, conn: duckdb.DuckDBPyConnection = Depends(
     conn.execute("SELECT id FROM scenarios WHERE id = ?", [scenario_id])
     if not conn.fetchone():
         raise HTTPException(status_code=404, detail="Scenario not found")
+    
+    # First, delete any associated overrides
+    conn.execute("DELETE FROM scenario_overrides WHERE scenario_id = ?", [scenario_id])
+    # Then delete simulation results
+    conn.execute("DELETE FROM simulation_results WHERE scenario_id = ?", [scenario_id])
+    # Finally delete the scenario
     conn.execute("DELETE FROM scenarios WHERE id = ?", [scenario_id])
 
 

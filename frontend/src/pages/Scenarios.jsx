@@ -34,7 +34,14 @@ export default function Scenarios() {
 
   const removeScenario = async id => {
     if (!confirm('Delete this scenario?')) return
-    await deleteScenario(id); load(); if (selected === id) setSelected(null)
+    setError('')
+    try {
+      await deleteScenario(id); 
+      await load()
+      if (selected === id) setSelected(null)
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Failed to delete scenario')
+    }
   }
 
   const submitOverride = async e => {
@@ -66,6 +73,7 @@ export default function Scenarios() {
           <h1 className="page-title" style={{ fontSize: 16 }}>Scenarios</h1>
           <button className="btn-primary btn-sm" onClick={() => { setForm(BLANK_SCENARIO); setError(''); setModal('add') }}>+</button>
         </div>
+        {error && <p className="error-msg" style={{ marginBottom: 12 }}>{error}</p>}
         {scenarios.length === 0
           ? <EmptyState icon="🔀" title="No scenarios" subtitle="Create scenarios to model what-if situations." action={<button className="btn-primary btn-sm" onClick={() => { setForm(BLANK_SCENARIO); setModal('add') }}>Create</button>} />
           : scenarios.map(s => (
