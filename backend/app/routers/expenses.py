@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -34,6 +35,15 @@ PROPERTY_COST_KEYWORDS = (
 def _fmt(row: dict) -> dict:
     if row.get("created_at"):
         row["created_at"] = str(row["created_at"])
+    raw_periods = row.get("periods_json")
+    if isinstance(raw_periods, str) and raw_periods.strip():
+        try:
+            row["periods"] = json.loads(raw_periods)
+        except json.JSONDecodeError:
+            row["periods"] = []
+    else:
+        row["periods"] = []
+    row.pop("periods_json", None)
     return row
 
 
@@ -103,11 +113,12 @@ def create_expense(body: ExpenseCreate, conn: duckdb.DuckDBPyConnection = Depend
     conn.execute(
         """INSERT INTO expenses
            (id, name, category, annual_amount, start_age, end_age,
-            inflation_adjusted, notes)
-           VALUES (?,?,?,?,?,?,?,?)""",
+            inflation_adjusted, notes, periods_json)
+           VALUES (?,?,?,?,?,?,?,?,?)""",
         [
             new_id, body.name, body.category, body.annual_amount,
             body.start_age, body.end_age, body.inflation_adjusted, body.notes,
+            json.dumps([p.model_dump() for p in body.periods]) if body.periods else None,
         ],
     )
     conn.execute("SELECT * FROM expenses WHERE id = ?", [new_id])
@@ -127,11 +138,13 @@ def update_expense(
     conn.execute(
         """UPDATE expenses SET
            name=?, category=?, annual_amount=?, start_age=?, end_age=?,
-           inflation_adjusted=?, notes=?
+           inflation_adjusted=?, notes=?, periods_json=?
            WHERE id=?""",
         [
             body.name, body.category, body.annual_amount, body.start_age,
-            body.end_age, body.inflation_adjusted, body.notes, expense_id,
+            body.end_age, body.inflation_adjusted, body.notes,
+            json.dumps([p.model_dump() for p in body.periods]) if body.periods else None,
+            expense_id,
         ],
     )
     conn.execute("SELECT * FROM expenses WHERE id = ?", [expense_id])

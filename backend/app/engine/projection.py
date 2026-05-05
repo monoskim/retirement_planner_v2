@@ -42,7 +42,39 @@ def _load_income_sources(conn: duckdb.DuckDBPyConnection) -> list[dict]:
 
 def _load_expenses(conn: duckdb.DuckDBPyConnection) -> list[dict]:
     conn.execute("SELECT * FROM expenses ORDER BY created_at")
-    return rows_to_dicts(conn)
+    rows = rows_to_dicts(conn)
+    for row in rows:
+        raw = row.get("periods_json")
+        if isinstance(raw, str) and raw.strip():
+            try:
+                row["periods"] = json.loads(raw)
+            except json.JSONDecodeError:
+                row["periods"] = []
+        else:
+            row["periods"] = []
+    return rows
+
+
+def _expense_amount_for_age(expense: dict, age: int, inflation_factor: float) -> float:
+    periods = expense.get("periods") or []
+    if isinstance(periods, list) and periods:
+        total = 0.0
+        for period in periods:
+            start = period.get("start_age") if isinstance(period, dict) else None
+            end = period.get("end_age") if isinstance(period, dict) else None
+            amount = period.get("annual_amount", 0.0) if isinstance(period, dict) else 0.0
+            start = 0 if start is None else start
+            end = 999 if end is None else end
+            if start <= age <= end:
+                total += amount
+        return total * inflation_factor if expense.get("inflation_adjusted", True) else total
+
+    start = expense.get("start_age") or 0
+    end = expense.get("end_age") or 999
+    if start <= age <= end:
+        base_amount = expense.get("annual_amount", 0.0)
+        return base_amount * inflation_factor if expense.get("inflation_adjusted", True) else base_amount
+    return 0.0
 
 
 def _load_ss(conn: duckdb.DuckDBPyConnection) -> dict | None:
@@ -121,9 +153,33 @@ def _apply_overrides(data: dict, overrides: list[dict]) -> None:
                 if src["id"] == eid:
                     src[field] = value
         elif etype == "expense":
-            for exp in data.get("expenses", []):
+            if field == "__deleted__" and value is True:
+                data["expenses"] = [exp for exp in data.get("expenses", []) if exp.get("id") != eid]
+                continue
+
+            expenses = data.get("expenses", [])
+            target = None
+            for exp in expenses:
                 if exp["id"] == eid:
-                    exp[field] = value
+                    target = exp
+                    break
+
+            if target is None:
+                # Support scenario-only expense rows represented by overrides.
+                target = {
+                    "id": eid,
+                    "name": "Scenario Expense",
+                    "category": "other",
+                    "annual_amount": 0.0,
+                    "start_age": None,
+                    "end_age": None,
+                    "inflation_adjusted": True,
+                    "notes": None,
+                    "periods": [],
+                }
+                expenses.append(target)
+
+            target[field] = value
         elif etype == "rental_property":
             for rd in data.get("rental_data", []):
                 if rd["property"]["id"] == eid:
@@ -376,13 +432,10 @@ def run_projection(
 
         # ---- 6. EXPENSES ----
         expense_breakdown: dict[str, float] = {}
+        expense_inflation_factor = (1 + inflation_rate) ** years_elapsed
         for exp in expenses:
-            start = exp.get("start_age") or 0
-            end_a = exp.get("end_age") or 999
-            if start <= age <= end_a:
-                amount = exp.get("annual_amount", 0.0)
-                if exp.get("inflation_adjusted", True):
-                    amount *= (1 + inflation_rate) ** years_elapsed
+            amount = _expense_amount_for_age(exp, age, expense_inflation_factor)
+            if amount > 0:
                 cat = exp.get("name", exp.get("category", "other"))
                 expense_breakdown[cat] = expense_breakdown.get(cat, 0.0) + amount
 

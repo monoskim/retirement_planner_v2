@@ -110,6 +110,7 @@ def _create_schema(conn: duckdb.DuckDBPyConnection) -> None:
             start_age        INTEGER,
             end_age          INTEGER,
             inflation_adjusted BOOLEAN NOT NULL DEFAULT TRUE,
+            periods_json     VARCHAR,
             notes            VARCHAR,
             created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
@@ -278,6 +279,12 @@ def _migrate(conn: duckdb.DuckDBPyConnection) -> None:
     if "is_primary_residence" not in prop_cols:
         conn.execute("ALTER TABLE rental_properties ADD COLUMN is_primary_residence BOOLEAN DEFAULT FALSE")
         conn.execute("UPDATE rental_properties SET is_primary_residence = FALSE WHERE is_primary_residence IS NULL")
+
+    expense_cols = {row[0] for row in conn.execute(
+        "SELECT column_name FROM information_schema.columns WHERE table_name = 'expenses'"
+    ).fetchall()}
+    if "periods_json" not in expense_cols:
+        conn.execute("ALTER TABLE expenses ADD COLUMN periods_json VARCHAR")
 
 
 def _ensure_base_scenario(conn: duckdb.DuckDBPyConnection) -> None:

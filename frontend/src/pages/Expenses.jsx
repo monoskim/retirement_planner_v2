@@ -9,9 +9,12 @@ import { FormField, Modal, EmptyState, formatCurrency } from '../components/shar
 
 const CATEGORIES = ['housing','travel','medical','food','insurance','taxes','transportation','entertainment','other']
 
+const BLANK_PERIOD = { annual_amount: 0, start_age: '', end_age: '' }
+
 const BLANK = {
   name: '', category: 'housing', annual_amount: 0,
   start_age: '', end_age: '', inflation_adjusted: true, notes: '',
+  periods: [], use_periods: false,
 }
 
 export default function Expenses() {
@@ -25,14 +28,63 @@ export default function Expenses() {
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
   const openAdd = () => { setForm(BLANK); setError(''); setModal('add') }
-  const openEdit = e => { setForm({ ...e, start_age: e.start_age ?? '', end_age: e.end_age ?? '' }); setError(''); setModal({ editing: e }) }
+  const openEdit = e => {
+    const rawPeriods = Array.isArray(e.periods) ? e.periods : []
+    const periods = rawPeriods.map(p => ({
+      annual_amount: p.annual_amount ?? 0,
+      start_age: p.start_age ?? '',
+      end_age: p.end_age ?? '',
+    }))
+
+    setForm({
+      ...e,
+      start_age: e.start_age ?? '',
+      end_age: e.end_age ?? '',
+      periods,
+      use_periods: periods.length > 0,
+    })
+    setError('')
+    setModal({ editing: e })
+  }
+
+  const addPeriod = () => setForm(f => ({ ...f, periods: [...(f.periods || []), { ...BLANK_PERIOD }] }))
+  const removePeriod = idx => setForm(f => ({ ...f, periods: (f.periods || []).filter((_, i) => i !== idx) }))
+  const setPeriod = (idx, key, value) => setForm(f => ({
+    ...f,
+    periods: (f.periods || []).map((p, i) => (i === idx ? { ...p, [key]: value } : p)),
+  }))
 
   const submit = async e => {
     e.preventDefault(); setError('')
+
+    let periods = []
+    if (form.use_periods) {
+      periods = (form.periods || [])
+        .map(p => ({
+          annual_amount: Number(p.annual_amount) || 0,
+          start_age: p.start_age === '' ? null : +p.start_age,
+          end_age: p.end_age === '' ? null : +p.end_age,
+        }))
+        .filter(p => p.annual_amount > 0)
+
+      if (periods.length === 0) {
+        setError('Add at least one period with an annual amount greater than 0.')
+        return
+      }
+
+      if (periods.some(p => p.start_age !== null && p.end_age !== null && p.end_age < p.start_age)) {
+        setError('Each period must have End Age greater than or equal to Start Age.')
+        return
+      }
+    }
+
+    const firstPeriod = periods[0]
     const payload = {
       ...form,
-      start_age: form.start_age === '' ? null : +form.start_age,
-      end_age: form.end_age === '' ? null : +form.end_age,
+      annual_amount: form.use_periods ? (firstPeriod?.annual_amount ?? 0) : Number(form.annual_amount) || 0,
+      start_age: form.use_periods ? (firstPeriod?.start_age ?? null) : (form.start_age === '' ? null : +form.start_age),
+      end_age: form.use_periods ? (firstPeriod?.end_age ?? null) : (form.end_age === '' ? null : +form.end_age),
+      periods: form.use_periods ? periods : [],
     }
 
     try {
@@ -48,6 +100,15 @@ export default function Expenses() {
   }
 
   const total = expenses.reduce((s, e) => s + e.annual_amount, 0)
+
+  const periodRangeLabel = e => {
+    if (!Array.isArray(e.periods) || e.periods.length === 0) {
+      return `${e.start_age ?? '—'}-${e.end_age ?? '∞'}`
+    }
+    return e.periods
+      .map(p => `${p.start_age ?? '—'}-${p.end_age ?? '∞'}`)
+      .join(', ')
+  }
 
   // Group by category for summary
   const byCategory = expenses.reduce((acc, e) => {
@@ -96,8 +157,8 @@ export default function Expenses() {
                   <tr key={e.id}>
                     <td>{e.name}</td>
                     <td><span className="tag">{e.category}</span></td>
-                    <td>{formatCurrency(e.annual_amount)}</td>
-                    <td style={{ color: 'var(--text-muted)' }}>{e.start_age ?? '—'}–{e.end_age ?? '∞'}</td>
+                    <td>{Array.isArray(e.periods) && e.periods.length > 0 ? 'Varies by period' : formatCurrency(e.annual_amount)}</td>
+                    <td style={{ color: 'var(--text-muted)' }}>{periodRangeLabel(e)}</td>
                     <td>{e.inflation_adjusted ? '✓' : '—'}</td>
                     <td>
                       <button className="btn-secondary btn-sm" onClick={() => openEdit(e)} style={{ marginRight: 6 }}>Edit</button>
@@ -130,14 +191,52 @@ export default function Expenses() {
                 </select>
               </FormField>
               <FormField label="Annual Amount ($)">
-                <input type="number" step="0.01" min="0" value={form.annual_amount} onChange={e => set('annual_amount', +e.target.value)} />
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  disabled={form.use_periods}
+                  value={form.annual_amount}
+                  onChange={e => set('annual_amount', +e.target.value)}
+                />
               </FormField>
               <FormField label="Start Age">
-                <input type="number" min="0" max="120" value={form.start_age} onChange={e => set('start_age', e.target.value)} />
+                <input
+                  type="number"
+                  min="0"
+                  max="120"
+                  disabled={form.use_periods}
+                  value={form.start_age}
+                  onChange={e => set('start_age', e.target.value)}
+                />
               </FormField>
               <FormField label="End Age">
-                <input type="number" min="0" max="120" value={form.end_age} onChange={e => set('end_age', e.target.value)} />
+                <input
+                  type="number"
+                  min="0"
+                  max="120"
+                  disabled={form.use_periods}
+                  value={form.end_age}
+                  onChange={e => set('end_age', e.target.value)}
+                />
               </FormField>
+              <div className="form-group" style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingTop: 20 }}>
+                <input
+                  type="checkbox"
+                  id="exp-periods"
+                  style={{ width: 'auto' }}
+                  checked={form.use_periods}
+                  onChange={e => {
+                    const enabled = e.target.checked
+                    setForm(f => ({
+                      ...f,
+                      use_periods: enabled,
+                      periods: enabled && (!f.periods || f.periods.length === 0) ? [{ ...BLANK_PERIOD }] : (f.periods || []),
+                    }))
+                  }}
+                />
+                <label htmlFor="exp-periods" style={{ marginBottom: 0 }}>Use multiple age periods</label>
+              </div>
               <div className="form-group" style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingTop: 20 }}>
                 <input type="checkbox" id="exp-infl" style={{ width: 'auto' }} checked={form.inflation_adjusted} onChange={e => set('inflation_adjusted', e.target.checked)} />
                 <label htmlFor="exp-infl" style={{ marginBottom: 0 }}>Inflation-adjusted</label>
@@ -145,6 +244,45 @@ export default function Expenses() {
               <FormField label="Notes" fullWidth>
                 <input value={form.notes || ''} onChange={e => set('notes', e.target.value)} />
               </FormField>
+              {form.use_periods && (
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Age-based periods</div>
+                    <button type="button" className="btn-secondary btn-sm" onClick={addPeriod}>+ Add Period</button>
+                  </div>
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    {(form.periods || []).map((p, idx) => (
+                      <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr auto', gap: 8 }}>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          placeholder="Annual Amount"
+                          value={p.annual_amount}
+                          onChange={e => setPeriod(idx, 'annual_amount', e.target.value)}
+                        />
+                        <input
+                          type="number"
+                          min="0"
+                          max="120"
+                          placeholder="Start Age"
+                          value={p.start_age}
+                          onChange={e => setPeriod(idx, 'start_age', e.target.value)}
+                        />
+                        <input
+                          type="number"
+                          min="0"
+                          max="120"
+                          placeholder="End Age"
+                          value={p.end_age}
+                          onChange={e => setPeriod(idx, 'end_age', e.target.value)}
+                        />
+                        <button type="button" className="btn-danger btn-sm" onClick={() => removePeriod(idx)}>Del</button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
             {error && <p className="error-msg">{error}</p>}
           </form>

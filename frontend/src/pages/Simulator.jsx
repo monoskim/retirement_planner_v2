@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { getScenarios, runSimulation, runMonteCarlo } from '../api'
+import { getAccounts, getScenarios, runSimulation, runMonteCarlo } from '../api'
 import { formatCurrency, formatPct, MeasuredChart } from '../components/shared'
 import {
   ComposedChart, Area, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -156,6 +156,7 @@ function BreakdownTooltip({ value, breakdown, formatEntry }) {
 }
 
 export default function Simulator() {
+  const [accounts, setAccounts] = useState([])
   const [scenarios, setScenarios] = useState([])
   const [scenarioId, setScenarioId] = useState('base')
   const [results, setResults] = useState(null)
@@ -163,12 +164,14 @@ export default function Simulator() {
   const [mcParams, setMcParams] = useState(DEFAULT_MC_PARAMS)
   const [chartsReady, setChartsReady] = useState(false)
   const [tab, setTab] = useState('portfolio')
+  const [selectedFlowAccountId, setSelectedFlowAccountId] = useState('')
   const [running, setRunning] = useState(false)
   const [runningMc, setRunningMc] = useState(false)
   const [error, setError] = useState('')
   const scenarioOptions = scenarios.length > 0 ? scenarios : [{ id: 'base', name: 'Base Plan', is_base: true }]
 
   useEffect(() => {
+    getAccounts().then(a => setAccounts(a)).catch(() => setAccounts([]))
     getScenarios().then(s => {
       setScenarios(s)
       if (s.length > 0) {
@@ -176,6 +179,23 @@ export default function Simulator() {
       }
     })
   }, [])
+
+  useEffect(() => {
+    if (!Array.isArray(results) || results.length === 0) {
+      setSelectedFlowAccountId('')
+      return
+    }
+
+    const flowIds = Object.keys(results[0].account_flows || {})
+    if (flowIds.length === 0) {
+      setSelectedFlowAccountId('')
+      return
+    }
+
+    if (!selectedFlowAccountId || !flowIds.includes(selectedFlowAccountId)) {
+      setSelectedFlowAccountId(flowIds[0])
+    }
+  }, [results, selectedFlowAccountId])
 
   useEffect(() => {
     const hasChartData = tab === 'monte-carlo' ? Boolean(monteCarloResults) : Boolean(results)
@@ -239,6 +259,23 @@ export default function Simulator() {
     })
     : []
   const mcTerminalHistogram = buildTerminalHistogram(monteCarloResults?.terminal_values)
+  const accountNameById = Object.fromEntries(accounts.map(a => [a.id, a.name]))
+  const flowRows = Array.isArray(results)
+    ? results
+      .map(row => {
+        const flow = row.account_flows?.[selectedFlowAccountId]
+        if (!flow) return null
+        return {
+          year: row.year,
+          age: row.age,
+          ...flow,
+        }
+      })
+      .filter(Boolean)
+    : []
+  const availableFlowAccountIds = Array.isArray(results) && results.length > 0
+    ? Object.keys(results[0].account_flows || {})
+    : []
 
   return (
     <div>
@@ -286,7 +323,7 @@ export default function Simulator() {
           )}
 
           <div className="tab-group" style={{ marginBottom: 12 }}>
-            {['portfolio','income/expenses','table','monte-carlo'].map(t => (
+            {['portfolio','income/expenses','table','account-flow','monte-carlo'].map(t => (
               <button key={t} className={`tab${tab === t ? ' active' : ''}`} onClick={() => setTab(t)}>{t}</button>
             ))}
           </div>
@@ -458,6 +495,87 @@ export default function Simulator() {
                 <div className="empty-state">
                   <h3>Run Deterministic Simulation First</h3>
                   <p>This tab uses deterministic results. Use ▶ Run Simulation or switch to monte-carlo.</p>
+                </div>
+              </div>
+            )
+          )}
+
+          {tab === 'account-flow' && (
+            results ? (
+              <div className="card">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, gap: 8, flexWrap: 'wrap' }}>
+                  <div>
+                    <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600 }}>Yearly Account Flow (Latest Simulation)</h3>
+                    <p className="page-subtitle" style={{ margin: 0 }}>
+                      Start balance, return, withdrawals, and ending balance by year for this deterministic run
+                    </p>
+                  </div>
+                  <select
+                    value={selectedFlowAccountId}
+                    onChange={e => setSelectedFlowAccountId(e.target.value)}
+                    disabled={availableFlowAccountIds.length === 0}
+                    style={{ minWidth: 260 }}
+                  >
+                    {availableFlowAccountIds.map(accountId => (
+                      <option key={accountId} value={accountId}>
+                        {accountNameById[accountId] || `Account ${accountId.slice(0, 8)}`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {availableFlowAccountIds.length === 0 && (
+                  <p className="page-subtitle" style={{ marginBottom: 0 }}>
+                    This simulation result does not include account flow details.
+                  </p>
+                )}
+
+                {availableFlowAccountIds.length > 0 && flowRows.length === 0 && (
+                  <p className="page-subtitle" style={{ marginBottom: 0 }}>
+                    No yearly flow rows were found for the selected account.
+                  </p>
+                )}
+
+                {flowRows.length > 0 && (
+                  <div style={{ overflowX: 'auto', maxHeight: '60vh', overflowY: 'auto' }}>
+                    <table>
+                      <thead style={{ position: 'sticky', top: 0, zIndex: 1, background: 'var(--surface2)' }}>
+                        <tr>
+                          <th>Year</th>
+                          <th>Age</th>
+                          <th>Start Balance</th>
+                          <th>Contrib</th>
+                          <th>Match</th>
+                          <th>Return</th>
+                          <th>Withdrawals</th>
+                          <th>RMD</th>
+                          <th>End Balance</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {flowRows.map(r => (
+                          <tr key={r.year}>
+                            <td>{r.year}</td>
+                            <td>{r.age}</td>
+                            <td>{formatCurrency(r.start_balance)}</td>
+                            <td>{formatCurrency(r.contribution)}</td>
+                            <td>{formatCurrency(r.employer_match)}</td>
+                            <td style={{ color: r.return_amount >= 0 ? 'var(--green)' : 'var(--red)' }}>{formatCurrency(r.return_amount)}</td>
+                            <td style={{ color: 'var(--red)' }}>{formatCurrency(r.withdrawal_outflow)}</td>
+                            <td style={{ color: 'var(--red)' }}>{formatCurrency(r.rmd_outflow)}</td>
+                            <td>{formatCurrency(r.ending_balance)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="card">
+                <div className="empty-state">
+                  <h3>Run Deterministic Simulation First</h3>
+                  <p>This tab uses deterministic results. Use ▶ Run Simulation first.</p>
                 </div>
               </div>
             )

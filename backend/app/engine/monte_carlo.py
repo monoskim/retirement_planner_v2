@@ -18,6 +18,30 @@ from .withdrawal import make_withdrawals
 from .rental_property import calculate_rental_year
 
 
+def _expense_amount_vector_for_age(expense: dict, age: int, years_elapsed: int, infl: np.ndarray) -> np.ndarray:
+    periods = expense.get("periods") or []
+
+    if isinstance(periods, list) and periods:
+        total = np.zeros_like(infl)
+        for period in periods:
+            if not isinstance(period, dict):
+                continue
+            start = 0 if period.get("start_age") is None else period.get("start_age")
+            end = 999 if period.get("end_age") is None else period.get("end_age")
+            if start <= age <= end:
+                total += period.get("annual_amount", 0.0)
+    else:
+        start = expense.get("start_age") or 0
+        end = expense.get("end_age") or 999
+        if not (start <= age <= end):
+            return np.zeros_like(infl)
+        total = np.full_like(infl, expense.get("annual_amount", 0.0), dtype=float)
+
+    if expense.get("inflation_adjusted", True):
+        return total * (1 + infl) ** years_elapsed
+    return total
+
+
 @dataclass
 class MonteCarloResult:
     n_simulations: int
@@ -203,15 +227,7 @@ def run_monte_carlo(
         # ---- Expenses ----
         total_expenses = np.zeros(N)
         for exp in expenses:
-            start = exp.get("start_age") or 0
-            end_a = exp.get("end_age") or 999
-            if start <= age <= end_a:
-                amount = exp.get("annual_amount", 0.0)
-                if exp.get("inflation_adjusted", True):
-                    amount_v = amount * (1 + infl) ** years_elapsed
-                else:
-                    amount_v = amount
-                total_expenses += amount_v
+            total_expenses += _expense_amount_vector_for_age(exp, age, years_elapsed, infl)
 
         if primary_residence_outflow > 0:
             total_expenses += primary_residence_outflow

@@ -43,11 +43,18 @@ const INCOME_FIELDS = [
 ]
 
 const EXPENSE_FIELDS = [
+  { name: 'name', label: 'Name', type: 'text' },
+  { name: 'category', label: 'Category', type: 'text' },
   { name: 'annual_amount', label: 'Annual Amount ($)', type: 'number' },
   { name: 'start_age', label: 'Start Age', type: 'nullableNumber' },
   { name: 'end_age', label: 'End Age', type: 'nullableNumber' },
   { name: 'inflation_adjusted', label: 'Inflation Adjusted', type: 'boolean' },
 ]
+
+const SCENARIO_EXPENSE_PREFIX = 'scenario-expense:'
+const EXPENSE_DELETED_FIELD = '__deleted__'
+
+const makeScenarioExpenseId = () => `${SCENARIO_EXPENSE_PREFIX}${globalThis.crypto?.randomUUID?.() || Date.now()}`
 
 const SS_FIELDS = [
   { name: 'fra_monthly_benefit', label: 'FRA Monthly Benefit ($)', type: 'number' },
@@ -99,7 +106,7 @@ const parseOverrideValue = raw => {
 
 const normalizeCompare = value => (value === undefined ? null : value)
 
-const valuesEqual = (a, b) => normalizeCompare(a) === normalizeCompare(b)
+const valuesEqual = (a, b) => JSON.stringify(normalizeCompare(a)) === JSON.stringify(normalizeCompare(b))
 
 const applyOverridesToBase = (baseData, overrides) => {
   const next = deepClone(baseData)
@@ -130,8 +137,25 @@ const applyOverridesToBase = (baseData, overrides) => {
     }
 
     if (etype === 'expense') {
-      const row = next.expenses.find(exp => exp.id === eid)
-      if (row) row[field] = value
+      if (field === EXPENSE_DELETED_FIELD && value === true) {
+        next.expenses = next.expenses.filter(exp => exp.id !== eid)
+        return
+      }
+      let row = next.expenses.find(exp => exp.id === eid)
+      if (!row) {
+        row = {
+          id: eid,
+          name: 'Scenario Expense',
+          category: 'other',
+          annual_amount: 0,
+          start_age: null,
+          end_age: null,
+          inflation_adjusted: true,
+          notes: null,
+        }
+        next.expenses.push(row)
+      }
+      row[field] = value
       return
     }
 
@@ -153,6 +177,8 @@ const parseFieldValue = (fieldType, raw) => {
 }
 
 const isManagedOverride = ov => {
+  if (ov.entity_type === 'expense' && ov.field_name === 'periods') return true
+  if (ov.entity_type === 'expense' && ov.field_name === EXPENSE_DELETED_FIELD) return true
   const fields = FIELD_MAP[ov.entity_type]
   if (!fields) return false
   return fields.some(f => f.name === ov.field_name)
@@ -209,16 +235,55 @@ const buildManagedOverrides = (baseData, effectiveData) => {
     baseData.expenses.forEach(baseExpense => {
       const effExpense = effectiveData.expenses.find(e => e.id === baseExpense.id)
       if (!effExpense) return
-      if (!valuesEqual(baseExpense[field.name], effExpense[field.name])) {
+      const baseValue = baseExpense[field.name]
+      const effValue = effExpense[field.name]
+
+      if (!valuesEqual(baseValue, effValue)) {
         rows.push({
           entity_type: 'expense',
           entity_id: baseExpense.id,
           field_name: field.name,
-          override_value: JSON.stringify(effExpense[field.name]),
+          override_value: JSON.stringify(effValue),
         })
       }
     })
   })
+
+  baseData.expenses.forEach(baseExpense => {
+    const stillPresent = effectiveData.expenses.some(e => e.id === baseExpense.id)
+    if (!stillPresent) {
+      rows.push({
+        entity_type: 'expense',
+        entity_id: baseExpense.id,
+        field_name: EXPENSE_DELETED_FIELD,
+        override_value: JSON.stringify(true),
+      })
+    }
+  })
+
+  const baseExpenseIds = new Set(baseData.expenses.map(e => e.id))
+  effectiveData.expenses
+    .filter(exp => !baseExpenseIds.has(exp.id))
+    .forEach(exp => {
+      EXPENSE_FIELDS.forEach(field => {
+        const value = exp[field.name]
+
+        const isEmpty =
+          value === null
+          || value === undefined
+          || value === ''
+          || (Array.isArray(value) && value.length === 0)
+
+        if (isEmpty) return
+
+        rows.push({
+          entity_type: 'expense',
+          entity_id: exp.id,
+          field_name: field.name,
+          override_value: JSON.stringify(value),
+        })
+      })
+    })
 
   SS_FIELDS.forEach(field => {
     if (!baseData.social_security || !effectiveData.social_security) return
@@ -367,6 +432,7 @@ export default function Scenarios() {
   const saveOverrides = async () => {
     if (!selected) return
     setError('')
+
     setSavingOverrides(true)
     try {
       const managedDiffs = buildManagedOverrides(baseData, effectiveData)
@@ -398,6 +464,7 @@ export default function Scenarios() {
   const changedCount = calcChangedCount(baseData, effectiveData)
   const primaryProperties = effectiveData.rental_properties.filter(row => !!row.is_primary_residence)
   const nonPrimaryProperties = effectiveData.rental_properties.filter(row => !row.is_primary_residence)
+  const baseExpenseIds = new Set(baseData.expenses.map(e => e.id))
 
   const updateProfileValue = (field, raw) => {
     setEffectiveData(prev => ({
@@ -417,6 +484,32 @@ export default function Scenarios() {
           ? { ...row, [field.name]: parseFieldValue(field.type, raw) }
           : row
       )),
+    }))
+  }
+
+  const addScenarioExpense = () => {
+    setEffectiveData(prev => ({
+      ...prev,
+      expenses: [
+        ...prev.expenses,
+        {
+          id: makeScenarioExpenseId(),
+          name: 'Scenario Expense',
+          category: 'other',
+          annual_amount: 0,
+          start_age: null,
+          end_age: null,
+          inflation_adjusted: true,
+          notes: null,
+        },
+      ],
+    }))
+  }
+
+  const removeScenarioExpense = expenseId => {
+    setEffectiveData(prev => ({
+      ...prev,
+      expenses: prev.expenses.filter(e => e.id !== expenseId),
     }))
   }
 
@@ -556,26 +649,49 @@ export default function Scenarios() {
                     </div>
 
                     <div className="card" style={{ marginBottom: 16 }}>
-                      <h3 style={{ marginTop: 0, marginBottom: 10, fontSize: 14, fontWeight: 600 }}>Expenses</h3>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                        <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600 }}>Expenses</h3>
+                        <button type="button" className="btn-secondary btn-sm" onClick={addScenarioExpense}>+ Add Scenario Expense</button>
+                      </div>
                       {effectiveData.expenses.length === 0
                         ? <p style={{ margin: 0, color: 'var(--text-muted)' }}>No expenses to override.</p>
                         : (
                           <table>
                             <thead>
                               <tr>
-                                <th>Expense</th>
                                 {EXPENSE_FIELDS.map(f => <th key={f.name}>{f.label}</th>)}
+                                <th></th>
                               </tr>
                             </thead>
                             <tbody>
                               {effectiveData.expenses.map(row => (
                                 <tr key={row.id}>
-                                  <td>{row.name}</td>
                                   {EXPENSE_FIELDS.map(field => (
                                     <td key={overrideKey('expense', row.id, field.name)}>
-                                      {renderFieldInput(field, row[field.name], (f, raw) => updateCollectionValue('expenses', row.id, f, raw))}
+                                      {(baseExpenseIds.has(row.id) && (field.name === 'name' || field.name === 'category'))
+                                          ? <span style={{ color: 'var(--text-muted)' }}>{row[field.name] ?? '—'}</span>
+                                          : (field.name === 'name' && !baseExpenseIds.has(row.id))
+                                            ? (
+                                              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                                <input
+                                                  value={toInputValue(row[field.name])}
+                                                  onChange={e => updateCollectionValue('expenses', row.id, field, e.target.value)}
+                                                />
+                                                <span className="tag">scenario-only</span>
+                                              </div>
+                                            )
+                                          : renderFieldInput(field, row[field.name], (f, raw) => updateCollectionValue('expenses', row.id, f, raw))}
                                     </td>
                                   ))}
+                                  <td>
+                                    <button
+                                      type="button"
+                                      className="btn-danger btn-sm"
+                                      onClick={() => removeScenarioExpense(row.id)}
+                                    >
+                                      Del
+                                    </button>
+                                  </td>
                                 </tr>
                               ))}
                             </tbody>
@@ -668,7 +784,7 @@ export default function Scenarios() {
                           <tr key={o.id}>
                             <td><span className="tag">{o.entity_type}</span> {o.entity_id !== 'profile' && o.entity_id !== 'ss' && `(${o.entity_id})`}</td>
                             <td style={{ color: 'var(--text-muted)' }}>{o.field_name}</td>
-                            <td>{o.override_value}</td>
+                            <td style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{o.override_value}</td>
                           </tr>
                         ))}
                       </tbody>
